@@ -3,7 +3,6 @@
 
     module load cuda
     
-    cd SetToGraphPaper
     python download_jets_data.py
 
     conda create -n s2g_env -c pytorch pytorch=1.5 cudatoolkit=10.2 torchvision  
