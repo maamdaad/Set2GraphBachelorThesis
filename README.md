@@ -1,4 +1,7 @@
 # Set2GraphPaper
+
+Ich habe MiniConda auf dem HPC installiert, schau mal [https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh](hier): 
+
 ## Installation
 
     module load cuda
