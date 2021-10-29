@@ -19,4 +19,14 @@ Ich habe MiniConda auf dem HPC installiert, schau mal (https://repo.anaconda.com
     pip install torch-spline-conv
     pip install torch-geometric
 
+## Ausführen
 
+Zum Trainieren und Testen:
+
+    python main_scripts/main_jets.py --method=lin2
+
+Zum Testen:
+
+    python main_scripts/main_jets.py --load_model 1
+
+Musst dann aber in main_jets.py in der `main()` den Pfad zu einem vorherigen Modell anpassen.
