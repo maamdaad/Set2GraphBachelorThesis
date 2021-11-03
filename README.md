@@ -23,12 +23,11 @@ Ich habe MiniConda auf dem HPC installiert, schau mal (https://repo.anaconda.com
 
 Zum Trainieren und Testen:
 
-    python main_scripts/main_jets.py --method=lin2
+    python main_scripts/main_jets.py --method=lin2 [--vram_clear_time=1]
 
 Zum Testen:
 
-    python main_scripts/main_jets.py --load_model 1
+    python main_scripts/main_jets.py --load_model=1 --vram_clear_time=1
 
 Musst dann aber in main_jets.py in der `main()` den Pfad zu einem vorherigen Modell anpassen.
 
-`main_jets_load_model.py` ist nicht wichtig, habe ich nur zum Debuggen benutzt.

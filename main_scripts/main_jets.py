@@ -51,6 +51,7 @@ def parse_args():
     argparser.add_argument('--debug_load', dest='debug_load', action='store_true', help='Load only a small subset of the data')
     argparser.add_argument('--save', dest='save', action='store_true', help='Whether to save all to disk')
     argparser.add_argument('--no_save', dest='save', action='store_false')
+    argparser.add_argument('--vram_clear_time', default=2., type=float, help='Timer for prediction to wait for CUDA garbage collection')
     argparser.set_defaults(save=True, debug_load=False)
 
     args = argparser.parse_args()
@@ -213,9 +214,8 @@ def main():
     # os.environ["CUDA_VISIBLE_DEVICES"] = config.gpu
     torch.cuda.set_device(int(config.gpu))
     torch.cuda.empty_cache()
-    print(torch.cuda.memory_summary())
 
-    pprint(vars(config))
+    print("Using CUDA clear timer {:1.1f}s".format(config.vram_clear_time))
     print(flush=True)
 
     if config.load_model == 0:
@@ -340,7 +340,7 @@ def main():
         torch.cuda.empty_cache()
 
         print(f'Epoch {best_epoch} - evaluating over test set.')
-        test_results = eval_jets_on_test_set(best_model)
+        test_results = eval_jets_on_test_set(model, config.vram_clear_time)
         print('Test results:')
         print(test_results)
         if config.save:
@@ -370,15 +370,13 @@ def main():
                                predict_diagonal=False,
                                attention=True,
                                set_model_type='deepset')
-        print('Model:', model)
         model = model.to(DEVICE)
         num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
         print(f'The nubmer of model parameters is {num_params}')
-        path = "../experiments/jets_results/jets_20211028_235049_0/exp_model.pt"
+        path = "../experiments/jets_results/jets_20211102_234945_0/exp_model.pt"
         print("Loading model state dict in", path)
         model.load_state_dict(torch.load(path))
-        print(torch.cuda.memory_summary())
-        test_results = eval_jets_on_test_set(model)
+        test_results = eval_jets_on_test_set(model, config.vram_clear_time)
         print('Test results:')
         print(test_results)
         #if config.save:

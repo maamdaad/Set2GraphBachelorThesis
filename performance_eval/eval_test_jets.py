@@ -1,3 +1,5 @@
+import time
+
 import torch
 import uproot
 import numpy as np
@@ -73,21 +75,19 @@ def _f_measure(labels, predictions):
     return 2 * (precision * recall) / (recall + precision)
 
 
-def eval_jets_on_test_set(model):
+def eval_jets_on_test_set(model, sleeptime):
     
     print('Predicting to test on test set...')
-    pred = _predict_on_test_set(model)
+    pred = _predict_on_test_set(model, sleeptime)
     print('Loading test set...')
     test_ds = uproot.open('data/test/test_data.root')
-    print("Loading dataset")
-    jet_pd_array = test_ds['tree'].arrays(library='pd')
-    print("Creating dataframe")
-    jet_df = jet_pd_array[0][['jet_flav', 'trk_vtx_index']]
+    print("Loading dataset...")
+    jet_np_array = test_ds['tree'].arrays(library='np')
     print("Extracting jet_flav...")
-    jet_flav = jet_df['jet_flav']
-    print("Extracting trk_vtx_index")
-    target = [x for x in jet_df['trk_vtx_index'].values]
-    print('Calculating scores on test set... ', end='')
+    jet_flav = jet_np_array['jet_flav']
+    print("Extracting trk_vtx_index...")
+    target = jet_np_array['trk_vtx_index']
+    print('Calculating scores on test set... ')
     if len(pred) != len(target):
         print("Error in shapes", len(pred), len(target))
         target = target[:len(pred)]
@@ -95,11 +95,25 @@ def eval_jets_on_test_set(model):
         print("Shortened to", len(target), len(jet_flav), len(pred)) 
     start = datetime.now()
     model_scores = {}
-    model_scores['RI'] = np.vectorize(_get_rand_index(target, pred))
-    model_scores['ARI'] = np.vectorize(adjustedRI_onesided(target, pred))
-    model_scores['P'] = np.vectorize(_get_precision(target, pred))
-    model_scores['R'] = np.vectorize(_get_recall(target, pred))
-    model_scores['F1'] = np.vectorize(_f_measure(target, pred))
+
+    target = np.asarray(target, dtype=object)
+    pred = np.asarray(pred, dtype=object)#
+
+    RI_func = np.vectorize(_get_rand_index)
+    ARI_func = np.vectorize(adjustedRI_onesided)
+    P_func = np.vectorize(_get_precision)
+    R_func = np.vectorize(_get_recall)
+    F1_func = np.vectorize(_f_measure)
+    print('... RI')
+    model_scores['RI'] = RI_func(target, pred)
+    print('... ARI')
+    model_scores['ARI'] = ARI_func(target, pred)
+    print('... P')
+    model_scores['P'] = P_func(target, pred)
+    print('... R')
+    model_scores['R'] = R_func(target, pred)
+    print('... F1')
+    model_scores['F1'] = F1_func(target, pred)
 
     end = datetime.now()
     print(f': {str(end - start).split(".")[0]}')
@@ -117,15 +131,13 @@ def eval_jets_on_test_set(model):
     return df
 
 
-def _predict_on_test_set(model):
+def _predict_on_test_set(model, sleeptime):
     test_ds = JetGraphDataset('test')
     model.eval()
 
     n_tracks = [test_ds[i][0].shape[0] for i in range(len(test_ds))]
 
-    print("Vor Clear Cache",torch.cuda.memory_summary())
     torch.cuda.empty_cache()
-    print("Nach Clear Cache",torch.cuda.memory_summary())
 
     indx_list = []
     predictions = []
@@ -138,18 +150,50 @@ def _predict_on_test_set(model):
 
         input_batch = torch.stack([test_ds[i][0] for i in trk_indxs])  # shape (B, N_i, 10)
 
+        del trk_indxs
+        torch.cuda.empty_cache()
+        #print("del trk_indxs")
+
         edge_vals = model(input_batch).squeeze(1)
         edge_scores = 0.5*(edge_vals + edge_vals.transpose(1, 2))
+
+        del edge_vals, input_batch
+        torch.cuda.empty_cache()
+        #print("del edge_vals, input_batch")
+
         edge_scores = torch.sigmoid(edge_scores)
         B,N,_ = edge_scores.shape
         edge_scores[:, np.arange(N), np.arange(N)] = 1.
-        
+
+        del B,N
+        torch.cuda.empty_cache()
+        #print("del B,N")
+
         pred_matrices = compute_clusters_with_partition_score(edge_scores)
+
+        del edge_scores
+        torch.cuda.empty_cache()
+        #print("del edge_scores")
+
         pred_clusters = compute_vertex_assignment(pred_matrices)
+
+        del pred_matrices
+        torch.cuda.empty_cache()
+        #print("del pred_matrices")
 
         predictions += list(pred_clusters.cpu().data.numpy())  # Shape
 
+        del pred_clusters
+        torch.cuda.empty_cache()
+        #print("del pred_clusters")
+        
+        if sleeptime != 0:
+            print("One iteration in _predict_on_test_set finished, waiting {:.1f}s for clearing VRAM".format(sleeptime))
+            time.sleep(sleeptime)
+
     sorted_predictions = [list(x) for _, x in sorted(zip(indx_list, predictions))]
+    del predictions, indx_list
+    torch.cuda.empty_cache()
     return sorted_predictions
 
 
@@ -189,7 +233,8 @@ def compute_vertex_assignment(pred_matrix):
     tensor_1 = torch.tensor(1.)
     for i in range(n):
         clusters = torch.where(pred_matrix[:, i] == 1, i * tensor_1, clusters)
-    
+    del b, n, pred_matrix, tensor_1
+    torch.cuda.empty_cache()
     return clusters.long()
 
 def compute_clusters_with_partition_score(edge_scores):
@@ -197,7 +242,6 @@ def compute_clusters_with_partition_score(edge_scores):
     # edge scores shape is B,N,N
     
     edge_scores = edge_scores.to("cpu")
-    
     B,N,_ = edge_scores.shape
     Ne = int(N*(N-1)/2)
     
@@ -242,8 +286,14 @@ def compute_clusters_with_partition_score(edge_scores):
         
         partition_scores = compute_partition_score(edge_scores,fill_gaps(final_edge_decision))
 
+        del temp_edge_decision, temp_edge_decision_unsorted, temp_partition, temp_partition_scores
+        torch.cuda.empty_cache()
+
     final_edge_decision = fill_gaps(final_edge_decision)
-    
+
+    del edge_scores, B, N, Ne, r, c, z, flat_edge_scores, sorted_values, indices, flat_sorted_edge_decisions, partition_scores
+    torch.cuda.empty_cache()
+
     return final_edge_decision
 
 

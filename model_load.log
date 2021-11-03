@@ -1,0 +1,36 @@
+Using CUDA clear timer 1.0s
+
+The nubmer of model parameters is 457449
+Loading model state dict in ../experiments/jets_results/jets_20211102_234945_0/exp_model.pt
+Predicting to test on test set...
+ 0:00:51
+One iteration in _predict_on_test_set finished, waiting 1.0s for clearing VRAM
+One iteration in _predict_on_test_set finished, waiting 1.0s for clearing VRAM
+One iteration in _predict_on_test_set finished, waiting 1.0s for clearing VRAM
+One iteration in _predict_on_test_set finished, waiting 1.0s for clearing VRAM
+One iteration in _predict_on_test_set finished, waiting 1.0s for clearing VRAM
+One iteration in _predict_on_test_set finished, waiting 1.0s for clearing VRAM
+One iteration in _predict_on_test_set finished, waiting 1.0s for clearing VRAM
+One iteration in _predict_on_test_set finished, waiting 1.0s for clearing VRAM
+One iteration in _predict_on_test_set finished, waiting 1.0s for clearing VRAM
+One iteration in _predict_on_test_set finished, waiting 1.0s for clearing VRAM
+One iteration in _predict_on_test_set finished, waiting 1.0s for clearing VRAM
+One iteration in _predict_on_test_set finished, waiting 1.0s for clearing VRAM
+One iteration in _predict_on_test_set finished, waiting 1.0s for clearing VRAM
+One iteration in _predict_on_test_set finished, waiting 1.0s for clearing VRAM
+Loading test set...
+Loading dataset...
+Extracting jet_flav...
+Extracting trk_vtx_index...
+Calculating scores on test set... 
+... RI
+... ARI
+... P
+... R
+... F1
+: 0:02:41
+Test results:
+                   P         R        F1        RI       ARI
+b jets      0.556124  0.692486  0.582772  0.737417  0.325015
+c jets      0.647984  0.849246  0.702905   0.70847  0.356386
+light jets  0.956295  0.943033  0.941894   0.93462  0.888082
