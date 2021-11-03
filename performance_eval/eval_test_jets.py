@@ -152,14 +152,12 @@ def _predict_on_test_set(model, sleeptime):
 
         del trk_indxs
         torch.cuda.empty_cache()
-        #print("del trk_indxs")
 
         edge_vals = model(input_batch).squeeze(1)
         edge_scores = 0.5*(edge_vals + edge_vals.transpose(1, 2))
 
         del edge_vals, input_batch
         torch.cuda.empty_cache()
-        #print("del edge_vals, input_batch")
 
         edge_scores = torch.sigmoid(edge_scores)
         B,N,_ = edge_scores.shape
@@ -167,28 +165,24 @@ def _predict_on_test_set(model, sleeptime):
 
         del B,N
         torch.cuda.empty_cache()
-        #print("del B,N")
 
         pred_matrices = compute_clusters_with_partition_score(edge_scores)
 
         del edge_scores
         torch.cuda.empty_cache()
-        #print("del edge_scores")
 
         pred_clusters = compute_vertex_assignment(pred_matrices)
 
         del pred_matrices
         torch.cuda.empty_cache()
-        #print("del pred_matrices")
 
         predictions += list(pred_clusters.cpu().data.numpy())  # Shape
 
         del pred_clusters
         torch.cuda.empty_cache()
-        #print("del pred_clusters")
         
         if sleeptime != 0:
-            print("One iteration in _predict_on_test_set finished, waiting {:.1f}s for clearing VRAM".format(sleeptime))
+            #print("One iteration in _predict_on_test_set finished, waiting {:.1f}s for clearing VRAM".format(sleeptime))
             time.sleep(sleeptime)
 
     sorted_predictions = [list(x) for _, x in sorted(zip(indx_list, predictions))]
