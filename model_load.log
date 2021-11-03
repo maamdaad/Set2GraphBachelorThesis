@@ -4,20 +4,6 @@ The nubmer of model parameters is 457449
 Loading model state dict in ../experiments/jets_results/jets_20211102_234945_0/exp_model.pt
 Predicting to test on test set...
  0:00:51
-One iteration in _predict_on_test_set finished, waiting 1.0s for clearing VRAM
-One iteration in _predict_on_test_set finished, waiting 1.0s for clearing VRAM
-One iteration in _predict_on_test_set finished, waiting 1.0s for clearing VRAM
-One iteration in _predict_on_test_set finished, waiting 1.0s for clearing VRAM
-One iteration in _predict_on_test_set finished, waiting 1.0s for clearing VRAM
-One iteration in _predict_on_test_set finished, waiting 1.0s for clearing VRAM
-One iteration in _predict_on_test_set finished, waiting 1.0s for clearing VRAM
-One iteration in _predict_on_test_set finished, waiting 1.0s for clearing VRAM
-One iteration in _predict_on_test_set finished, waiting 1.0s for clearing VRAM
-One iteration in _predict_on_test_set finished, waiting 1.0s for clearing VRAM
-One iteration in _predict_on_test_set finished, waiting 1.0s for clearing VRAM
-One iteration in _predict_on_test_set finished, waiting 1.0s for clearing VRAM
-One iteration in _predict_on_test_set finished, waiting 1.0s for clearing VRAM
-One iteration in _predict_on_test_set finished, waiting 1.0s for clearing VRAM
 Loading test set...
 Loading dataset...
 Extracting jet_flav...
@@ -28,7 +14,7 @@ Calculating scores on test set...
 ... P
 ... R
 ... F1
-: 0:02:41
+: 0:02:39
 Test results:
                    P         R        F1        RI       ARI
 b jets      0.556124  0.692486  0.582772  0.737417  0.325015
