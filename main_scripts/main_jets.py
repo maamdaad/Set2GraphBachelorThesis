@@ -51,7 +51,7 @@ def parse_args():
     argparser.add_argument('--debug_load', dest='debug_load', action='store_true', help='Load only a small subset of the data')
     argparser.add_argument('--save', dest='save', action='store_true', help='Whether to save all to disk')
     argparser.add_argument('--no_save', dest='save', action='store_false')
-    argparser.add_argument('--vram_clear_time', default=2., type=float, help='Timer for prediction to wait for CUDA garbage collection')
+    argparser.add_argument('--vram_clear_time', default=0., type=float, help='Timer for prediction to wait for CUDA garbage collection')
     argparser.add_argument('--model_path', default='../experiments/jets_results/jets_20211102_234945_0/exp_model.pt', type=str, help='Path to the saved weights')
     argparser.set_defaults(save=True, debug_load=False)
 
