@@ -1,6 +1,6 @@
 # Set2GraphPaper
 
-Ich habe MiniConda auf dem HPC installiert, schau mal (https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh): 
+MiniConda (https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh)
 
 ## Installation
 
@@ -19,15 +19,14 @@ Ich habe MiniConda auf dem HPC installiert, schau mal (https://repo.anaconda.com
     pip install torch-spline-conv
     pip install torch-geometric
 
-## Ausführen
+## Running
 
-Zum Trainieren und Testen:
+Training and Testing:
 
     python main_scripts/main_jets.py --method=lin2 [--vram_clear_time=1]
 
-Zum Testen:
+Testing:
 
-    python main_scripts/main_jets.py --load_model=1 --vram_clear_time=1
+    python main_scripts/main_jets.py --load_model=1 --vram_clear_time=1 --model_path="../experiments/jets_results/jets_20211102_234945_0/exp_model.pt"
 
-Musst dann aber in main_jets.py in der `main()` den Pfad zu einem vorherigen Modell anpassen.
 

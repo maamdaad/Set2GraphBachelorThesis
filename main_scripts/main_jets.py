@@ -52,6 +52,7 @@ def parse_args():
     argparser.add_argument('--save', dest='save', action='store_true', help='Whether to save all to disk')
     argparser.add_argument('--no_save', dest='save', action='store_false')
     argparser.add_argument('--vram_clear_time', default=2., type=float, help='Timer for prediction to wait for CUDA garbage collection')
+    argparser.add_argument('--model_path', default='../experiments/jets_results/jets_20211102_234945_0/exp_model.pt', type=str, help='Path to the saved weights')
     argparser.set_defaults(save=True, debug_load=False)
 
     args = argparser.parse_args()
@@ -373,7 +374,7 @@ def main():
         model = model.to(DEVICE)
         num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
         print(f'The nubmer of model parameters is {num_params}')
-        path = "../experiments/jets_results/jets_20211102_234945_0/exp_model.pt"
+        path = config.model_path
         print("Loading model state dict in", path)
         model.load_state_dict(torch.load(path))
         test_results = eval_jets_on_test_set(model, config.vram_clear_time)
