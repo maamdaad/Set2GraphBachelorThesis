@@ -75,54 +75,74 @@ def _f_measure(labels, predictions):
     return 2 * (precision * recall) / (recall + precision)
 
 
-def eval_jets_on_test_set(model, sleeptime):
+def eval_jets_on_test_set(model, sleeptime, real_data):
     
-    print('Predicting to test on test set...')
-    pred = _predict_on_test_set(model, sleeptime)
-    print('Loading test set...')
-    test_ds = uproot.open('data/test/test_data.root')
-    print("Loading dataset...")
-    jet_np_array = test_ds['tree'].arrays(library='np')
-    print("Extracting jet_flav...")
-    jet_flav = jet_np_array['jet_flav']
-    print("Extracting trk_vtx_index...")
-    target = jet_np_array['trk_vtx_index']
-    print('Calculating scores on test set... ')
+    print(' --> Predicting to test on test set')
+    pred = _predict_on_test_set(model, sleeptime, real_data)
+    print(' --> Loading test set')
+    if real_data:
+        test_ds = JetGraphDataset('test', real_data=True, add_jet_flav=True, correct_jet_flav=False)
+        target = np.array(test_ds.jet_arrays[b'trk_vtx_index'], dtype=np.object)
+        jet_flav = np.array(test_ds.jet_arrays[b'jet_flav'], dtype=np.float32)
+        jet_nsv = np.array(test_ds.jet_arrays[b'jet_nsv'], dtype=np.float32)
+        jet_npv = np.array(test_ds.jet_arrays[b'jet_npv'], dtype=np.float32)
+        jet_nv = np.array(test_ds.jet_arrays[b'jet_nv'], dtype=np.float32)
+
+    else:
+        test_ds = JetGraphDataset('test', real_data=False, add_jet_flav=True, correct_jet_flav=False)
+        target = np.array(test_ds.jet_arrays[b'trk_vtx_index'], dtype=np.object)
+        jet_flav = np.array(test_ds.jet_arrays[b'jet_flav'], dtype=np.float32)
+        """
+        test_ds = uproot.open('data/test/test_data.root')
+        jet_np_array = test_ds['tree'].arrays(library='np')
+        jet_flav = np.array(jet_np_array['jet_flav'], dtype=np.float32)
+        target = np.array(jet_np_array['trk_vtx_index'], dtype=np.object)
+        """
+    print(' --> Calculating scores on test set')
     if len(pred) != len(target):
-        print("Error in shapes", len(pred), len(target))
+        print(" --> Error in shapes", len(pred), len(target))
         target = target[:len(pred)]
         jet_flav = jet_flav[:len(pred)]
-        print("Shortened to", len(target), len(jet_flav), len(pred)) 
+        print(" --> Shortened to", len(target), len(jet_flav), len(pred))
     start = datetime.now()
     model_scores = {}
 
-    target = np.asarray(target, dtype=object)
-    pred = np.asarray(pred, dtype=object)#
+    pred = np.asarray(pred, dtype=object)
+
+    remAt = []
+
+    for t,p,i in zip(target,pred,range(len(pred))):
+        if len(t) != len(p):
+            remAt.append(i)
+            #print("shapes dont fit at i =", i, "removin...")
+
+    target = np.delete(target,remAt)
+    pred = np.delete(pred, remAt)
+    jet_flav = np.delete(jet_flav, remAt)
 
     RI_func = np.vectorize(_get_rand_index)
     ARI_func = np.vectorize(adjustedRI_onesided)
     P_func = np.vectorize(_get_precision)
     R_func = np.vectorize(_get_recall)
     F1_func = np.vectorize(_f_measure)
-    print('... RI')
+    print(' --> RI')
     model_scores['RI'] = RI_func(target, pred)
-    print('... ARI')
+    print(' --> ARI')
     model_scores['ARI'] = ARI_func(target, pred)
-    print('... P')
+    print(' --> P')
     model_scores['P'] = P_func(target, pred)
-    print('... R')
+    print(' --> R')
     model_scores['R'] = R_func(target, pred)
-    print('... F1')
+    print(' --> F1')
     model_scores['F1'] = F1_func(target, pred)
 
     end = datetime.now()
-    print(f': {str(end - start).split(".")[0]}')
+    print(f' --> Done Calculating, took me: {str(end - start).split(".")[0]}')
 
     flavours = {5: 'b jets', 4: 'c jets', 0: 'light jets'}
     metrics_to_table = ['P', 'R', 'F1', 'RI', 'ARI']
-
     df = pd.DataFrame(index=flavours.values(), columns=metrics_to_table)
-
+    
     for flav_n, flav in flavours.items():
         for metric in metrics_to_table:
             mean_metric = np.mean(model_scores[metric][jet_flav == flav_n])
@@ -131,8 +151,8 @@ def eval_jets_on_test_set(model, sleeptime):
     return df
 
 
-def _predict_on_test_set(model, sleeptime):
-    test_ds = JetGraphDataset('test')
+def _predict_on_test_set(model, sleeptime, real_data):
+    test_ds = JetGraphDataset('test', real_data=real_data)
     model.eval()
 
     n_tracks = [test_ds[i][0].shape[0] for i in range(len(test_ds))]

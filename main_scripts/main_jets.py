@@ -47,12 +47,13 @@ def parse_args():
     argparser.add_argument('--method', default='lin2', help='Method to transfer from sets to graphs: lin2 for S2G, lin5 for S2G+')
     argparser.add_argument('--res_dir', default='../experiments/jets_results', help='Results directory')
     argparser.add_argument('--baseline', default=None, help='Use a baseline and not set2graph. siam or rnn.')
-    argparser.add_argument('--load_model', default=0, type=int, help='0: train model, 1: load model')
+    argparser.add_argument('--load_model', default=False, type=bool, help='Should model be loaded')
     argparser.add_argument('--debug_load', dest='debug_load', action='store_true', help='Load only a small subset of the data')
     argparser.add_argument('--save', dest='save', action='store_true', help='Whether to save all to disk')
     argparser.add_argument('--no_save', dest='save', action='store_false')
     argparser.add_argument('--vram_clear_time', default=0., type=float, help='Timer for prediction to wait for CUDA garbage collection')
     argparser.add_argument('--model_path', default='../experiments/jets_results/jets_20211102_234945_0/exp_model.pt', type=str, help='Path to the saved weights')
+    argparser.add_argument('--real_data', default=False, type=bool, help='Should run on real data')
     argparser.set_defaults(save=True, debug_load=False)
 
     args = argparser.parse_args()
@@ -216,15 +217,19 @@ def main():
     torch.cuda.set_device(int(config.gpu))
     torch.cuda.empty_cache()
 
-    print("Using CUDA clear timer {:1.1f}s".format(config.vram_clear_time))
-    print(flush=True)
+    print(" --> Loading config", flush=True)
+    print(" --> Using CUDA clear timer {:1.1f}s".format(config.vram_clear_time))
+    if config.real_data:
+        print(" --> Running on real data")
+    else:
+        print(" --> Running on MC data")
 
-    if config.load_model == 0:
+    if config.load_model == False:
         # Load data
-        print('Loading training data...', end='', flush=True)
-        train_data = jets_loader.get_data_loader('train', config.bs, config.debug_load)
-        print('Loading validation data...', end='', flush=True)
-        val_data = jets_loader.get_data_loader('validation', config.bs, config.debug_load)
+        print(' --> Loading training data...', end='', flush=True)
+        train_data = jets_loader.get_data_loader('train', config.bs, debug_load=config.debug_load, real_data=config.real_data)
+        print(' --> Loading validation data...', end='', flush=True)
+        val_data = jets_loader.get_data_loader('validation', config.bs, debug_load=config.debug_load, real_data=config.real_data)
 
         # Create model instance
         if config.baseline == 'rnn':
@@ -248,10 +253,10 @@ def main():
                                predict_diagonal=False,
                                attention=True,
                                set_model_type='deepset')
-        print('Model:', model)
+        #print('Model:', model)
         model = model.to(DEVICE)
         num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-        print(f'The nubmer of model parameters is {num_params}')
+        print(f' --> The nubmer of model parameters is {num_params}')
 
         # Optimizer
         optimizer = torch.optim.Adam(params=model.parameters(), lr=config.lr)
@@ -267,16 +272,19 @@ def main():
         best_val_fscore = -1
         best_model = None
 
+        print("\n\n--------------------------------------------------")
+        print("  --> Starting Training")
+
         # Training and evaluation process
         for epoch in range(1, config.epochs + 1):
             train_info = train(train_data, model, optimizer)
-            print(f"\tTraining - {epoch:4}",
+            print(f"\n--------------------------------------------------\n\t --> Training - {epoch:4}",
                   " loss:{loss:.6f} -- mean_ri:{ri:.4f} -- fscore:{fscore:.4f} -- recall:{recall:.4f}"
                   " -- precision:{precision:.4f} -- runtime:{run_time}".format(**train_info), flush=True)
             train_loss[epoch - 1], train_ri[epoch - 1] = train_info['loss'], train_info['ri']
 
             val_info = evaluate(val_data, model)
-            print(f"\tVal      - {epoch:4}",
+            print(f"\t --> Val      - {epoch:4}",
                   " loss:{loss:.6f} -- mean_ri:{ri:.4f} -- fscore:{fscore:.4f} -- recall:{recall:.4f}"
                   " -- precision:{precision:.4f}  -- runtime:{run_time}\n".format(**val_info), flush=True)
             val_loss[epoch - 1], val_ri[epoch - 1] = val_info['loss'], val_info['ri']
@@ -287,13 +295,13 @@ def main():
                 best_model = copy.deepcopy(model)
 
             if best_epoch < epoch - 20:
-                print('Early stopping training due to no improvement over the last 20 epochs...')
+                print(' --> Early stopping training due to no improvement over the last 20 epochs...')
                 break
 
         del train_data, val_data
-        print(f'Best validation F-score: {best_val_fscore:.4f}, best epoch: {best_epoch}.')
+        print(f' --> Best validation F-score: {best_val_fscore:.4f}, best epoch: {best_epoch}.')
 
-        print(f'Training runtime: {str(datetime.now() - start_time).split(".")[0]}')
+        print(f' --> Training runtime: {str(datetime.now() - start_time).split(".")[0]}')
         print()
 
         # Saving to disk
@@ -311,10 +319,10 @@ def main():
                 i += 1
                 output_dir = output_dir[:-1] + str(i)
                 if i > 9:
-                    print(f'Cannot save results on disk. (tried to save as {output_dir})')
+                    print(f' --> Cannot save results on disk. (tried to save as {output_dir})')
                     return
 
-            print(f'Saving all to {output_dir}')
+            print(f' --> Saving all to {output_dir}')
             torch.save(best_model.state_dict(), os.path.join(output_dir, "exp_model.pt"))
             shutil.copyfile(__file__, os.path.join(output_dir, 'code.py'))
             results_dict = {'train_loss': train_loss,
@@ -340,14 +348,14 @@ def main():
         del model, num_params
         torch.cuda.empty_cache()
 
-        print(f'Epoch {best_epoch} - evaluating over test set.')
-        test_results = eval_jets_on_test_set(model, config.vram_clear_time)
-        print('Test results:')
+        print(f' --> Epoch {best_epoch} - evaluating over test set.')
+        test_results = eval_jets_on_test_set(best_model, config.vram_clear_time, config.real_data)
+        print('\n--------------------------------------------------\n -->Test results:')
         print(test_results)
         if config.save:
             test_results.to_csv(os.path.join(output_dir, "test_results.csv"), index=True)
 
-        print(f'Total runtime: {str(datetime.now() - start_time).split(".")[0]}')
+        print(f' -->Total runtime: {str(datetime.now() - start_time).split(".")[0]}')
     else:
         # Create model instance
         if config.baseline == 'rnn':
@@ -373,12 +381,12 @@ def main():
                                set_model_type='deepset')
         model = model.to(DEVICE)
         num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-        print(f'The nubmer of model parameters is {num_params}')
+        print(f' --> The nubmer of model parameters is {num_params}')
         path = config.model_path
-        print("Loading model state dict in", path)
+        print(" --> Loading model state dict in", path)
         model.load_state_dict(torch.load(path))
-        test_results = eval_jets_on_test_set(model, config.vram_clear_time)
-        print('Test results:')
+        test_results = eval_jets_on_test_set(model, config.vram_clear_time, config.real_data)
+        print('\n--------------------------------------------------\n -->Test results:')
         print(test_results)
         #if config.save:
         #    test_results.to_csv(os.path.join(output_dir, "test_results.csv"), index=True)
