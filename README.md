@@ -29,4 +29,7 @@ Testing:
 
     python main_scripts/main_jets.py --load_model=1 --vram_clear_time=1 --model_path="../experiments/jets_results/jets_20211102_234945_0/exp_model.pt"
 
+With bTagAna data:
 
+    python main_scripts/main_jets.py --method=lin2 real_data=True
+(root files are needed)
