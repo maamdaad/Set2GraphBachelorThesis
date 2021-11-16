@@ -31,5 +31,5 @@ Testing:
 
 With bTagAna data:
 
-    python main_scripts/main_jets.py --method=lin2 real_data=True
+    python main_scripts/main_jets.py --method=lin2 --real_data=True
 (root files are needed)
