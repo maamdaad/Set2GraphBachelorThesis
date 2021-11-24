@@ -23,10 +23,10 @@ MiniConda (https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
 
 Training and Testing:
 
-    python main_scripts/main_jets.py --method=lin2 [--vram_clear_time=1]
+    python main_scripts/main_jets.py --method=lin2 [--vram_clear_time=1] [--real_data=True] [--delta_epoch=40] [--load_model=True] [--model_path="..."]
 
 Testing:
 
-    python main_scripts/main_jets.py --load_model=True --model_path="../experiments/jets_results/jets_20211102_234945_0/exp_model.pt" --real_data=True
+    python main_scripts/main_jets.py --load_model=True --real_data=True
 
 
