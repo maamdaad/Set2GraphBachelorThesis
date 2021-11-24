@@ -1,3 +1,4 @@
+import math
 import time
 
 import torch
@@ -7,6 +8,9 @@ import pandas as pd
 from datetime import datetime
 from sklearn import metrics
 import mpmath
+import matplotlib.pyplot as plt
+import mplhep as hep
+hep.style.use(hep.style.CMS)
 
 from dataloaders.jets_loader import JetGraphDataset
 
@@ -27,6 +31,19 @@ def _get_rand_index(labels, predictions):
 
     return correct_pairs / n_pairs
 
+"""
+
+def _get_rand_index(labels, predictions):
+    n_items = len(labels)
+
+    correct_pairs = 0
+
+    for i in range(n_items):
+        if labels[i] == predictions[i]:
+            correct_pairs +=1
+
+    return correct_pairs / n_items
+"""
 
 def _error_count(labels, predictions):
     n_items = len(labels)
@@ -75,35 +92,35 @@ def _f_measure(labels, predictions):
     return 2 * (precision * recall) / (recall + precision)
 
 
-def eval_jets_on_test_set(model, sleeptime, real_data):
+def eval_jets_on_test_set(model, sleeptime, real_data, debug_load):
     
     print(' --> Predicting to test on test set')
-    pred = _predict_on_test_set(model, sleeptime, real_data)
+    pred = _predict_on_test_set(model, sleeptime, real_data, debug_load)
     print(' --> Loading test set')
+
     if real_data:
-        test_ds = JetGraphDataset('test', real_data=True, add_jet_flav=True, correct_jet_flav=False)
+        test_ds = JetGraphDataset('test', real_data=True, add_jet_flav=True, correct_jet_flav=False, load_to_cuda_device=False, debug_load=debug_load)
         target = np.array(test_ds.jet_arrays[b'trk_vtx_index'], dtype=np.object)
         jet_flav = np.array(test_ds.jet_arrays[b'jet_flav'], dtype=np.float32)
         jet_nsv = np.array(test_ds.jet_arrays[b'jet_nsv'], dtype=np.float32)
         jet_npv = np.array(test_ds.jet_arrays[b'jet_npv'], dtype=np.float32)
-        jet_nv = np.array(test_ds.jet_arrays[b'jet_nv'], dtype=np.float32)
 
     else:
-        test_ds = JetGraphDataset('test', real_data=False, add_jet_flav=True, correct_jet_flav=False)
+        test_ds = JetGraphDataset('test', real_data=False, add_jet_flav=True, correct_jet_flav=False, load_to_cuda_device=False, debug_load=debug_load)
         target = np.array(test_ds.jet_arrays[b'trk_vtx_index'], dtype=np.object)
         jet_flav = np.array(test_ds.jet_arrays[b'jet_flav'], dtype=np.float32)
-        """
-        test_ds = uproot.open('data/test/test_data.root')
-        jet_np_array = test_ds['tree'].arrays(library='np')
-        jet_flav = np.array(jet_np_array['jet_flav'], dtype=np.float32)
-        target = np.array(jet_np_array['trk_vtx_index'], dtype=np.object)
-        """
+
     print(' --> Calculating scores on test set')
+
     if len(pred) != len(target):
-        print(" --> Error in shapes", len(pred), len(target))
-        target = target[:len(pred)]
-        jet_flav = jet_flav[:len(pred)]
-        print(" --> Shortened to", len(target), len(jet_flav), len(pred))
+        minlen = min([len(pred), len(target), len(jet_flav), len(jet_npv), len(jet_nsv)])
+        print(" --> Error in shapes", [len(pred), len(target), len(jet_flav), len(jet_npv), len(jet_nsv)])
+        target = target[:minlen]
+        jet_flav = jet_flav[:minlen]
+        jet_npv = jet_npv[:minlen]
+        jet_nsv = jet_nsv[:minlen]
+        print(" --> Shortened to", [len(pred), len(target), len(jet_flav), len(jet_npv), len(jet_nsv)])
+
     start = datetime.now()
     model_scores = {}
 
@@ -114,11 +131,16 @@ def eval_jets_on_test_set(model, sleeptime, real_data):
     for t,p,i in zip(target,pred,range(len(pred))):
         if len(t) != len(p):
             remAt.append(i)
-            #print("shapes dont fit at i =", i, "removin...")
 
     target = np.delete(target,remAt)
     pred = np.delete(pred, remAt)
     jet_flav = np.delete(jet_flav, remAt)
+    jet_nsv = np.delete(jet_nsv, remAt)
+    jet_npv = np.delete(jet_npv, remAt)
+
+    if len(remAt) > 0:
+        print(" --> Removed", len(remAt), "target, pred pairs because of incorrect shapes (look into this again?!?)")
+        print(" --> There are", len(jet_flav), "left")
 
     RI_func = np.vectorize(_get_rand_index)
     ARI_func = np.vectorize(adjustedRI_onesided)
@@ -142,17 +164,310 @@ def eval_jets_on_test_set(model, sleeptime, real_data):
     flavours = {5: 'b jets', 4: 'c jets', 0: 'light jets'}
     metrics_to_table = ['P', 'R', 'F1', 'RI', 'ARI']
     df = pd.DataFrame(index=flavours.values(), columns=metrics_to_table)
-    
+    df_err = pd.DataFrame(index=flavours.values(), columns=metrics_to_table)
+
+    ri_by_npv = {'b jets':{}, 'c jets':{}, 'light jets':{}}
+    ri_by_nsv = {'b jets':{}, 'c jets':{}, 'light jets':{}}
+    ari_by_npv = {'b jets':{}, 'c jets':{}, 'light jets':{}}
+    ari_by_nsv = {'b jets':{}, 'c jets':{}, 'light jets':{}}
+    err_ri_by_npv = {'b jets':{}, 'c jets':{}, 'light jets':{}}
+    err_ri_by_nsv = {'b jets':{}, 'c jets':{}, 'light jets':{}}
+    err_ari_by_npv = {'b jets':{}, 'c jets':{}, 'light jets':{}}
+    err_ari_by_nsv = {'b jets':{}, 'c jets':{}, 'light jets':{}}
+
+    max_pv = int(max(jet_npv))
+    max_sv = int(max(jet_nsv))
+
+    print(" --> Found max_pv", max_pv, "and max_sv", max_sv)
+
     for flav_n, flav in flavours.items():
         for metric in metrics_to_table:
             mean_metric = np.mean(model_scores[metric][jet_flav == flav_n])
+            err = np.std(model_scores[metric][jet_flav == flav_n])
             df.at[flav, metric] = mean_metric
+            df_err.at[flav, metric] = err / np.sqrt(len(model_scores[metric][jet_flav == flav_n]))
 
-    return df
+    for flav_n, flav in flavours.items():
+        for n in range(max_pv):
+            bool_index = np.logical_and(jet_flav == flav_n, jet_npv == n)
+            if max(bool_index) == True:
+                mean_metric_ri = np.mean(model_scores['RI'][bool_index])
+                err_ri = np.std(model_scores['RI'][bool_index])
+                mean_metric_ari = np.mean(model_scores['ARI'][bool_index])
+                err_ari = np.std(model_scores['ARI'][bool_index])
+                ari_by_npv[flav][n] = mean_metric_ari
+                ri_by_npv[flav][n] = mean_metric_ri
+                err_ari_by_npv[flav][n] = err_ari
+                err_ri_by_npv[flav][n] = err_ri
+
+    for flav_n, flav in flavours.items():
+        for n in range(max_sv):
+            bool_index = np.logical_and(jet_flav == flav_n, jet_nsv == n)
+            if max(bool_index) == True:
+                mean_metric_ri = np.mean(model_scores['RI'][bool_index])
+                err_ri = np.std(model_scores['RI'][bool_index])
+                mean_metric_ari = np.mean(model_scores['ARI'][bool_index])
+                err_ari = np.std(model_scores['ARI'][bool_index])
+                ari_by_nsv[flav][n] = mean_metric_ari
+                ri_by_nsv[flav][n] = mean_metric_ri
+                err_ari_by_nsv[flav][n] = err_ari
+                err_ri_by_nsv[flav][n] = err_ri
 
 
-def _predict_on_test_set(model, sleeptime, real_data):
-    test_ds = JetGraphDataset('test', real_data=real_data)
+    for flav_n, flav in flavours.items():
+        ns = []
+        ri_val = []
+        ri_err = []
+        for n, ri in ri_by_npv[flav].items():
+            ns.append(n)
+            ri_val.append(ri)
+            ri_err.append(err_ri_by_npv[flav][n])
+
+        plt.title("Rand index")
+        plt.xlabel("Number of primary vertices")
+        plt.ylabel("RI")
+        plt.errorbar(ns, ri_val, yerr=ri_err, label=flav, linewidth=0, marker="x", elinewidth=2, capthick=2, capsize=4, ecolor='r', markersize=15)
+        plt.legend()
+        plt.savefig("plots/npv-ri-" + flav + ".png")
+        plt.show()
+        plt.figure()
+
+    for flav_n, flav in flavours.items():
+        ns = []
+        ari_val = []
+        ari_err = []
+        for n, ari in ari_by_npv[flav].items():
+            ns.append(n)
+            ari_val.append(ari)
+            ari_err.append(err_ari_by_npv[flav][n])
+
+        plt.title("Adjusted rand index")
+        plt.xlabel("Number of primary vertices")
+        plt.ylabel("ARI")
+        plt.errorbar(ns, ari_val, yerr=ari_err, label=flav, linewidth=0, marker="x", elinewidth=2, capthick=2, capsize=4, ecolor='r', markersize=15)
+        plt.legend()
+        plt.savefig("plots/npv-ari-" + flav + ".png")
+        plt.show()
+        plt.figure()
+
+    for flav_n, flav in flavours.items():
+        ns = []
+        ri_val = []
+        ri_err = []
+        for n, ri in ri_by_nsv[flav].items():
+            ns.append(n)
+            ri_val.append(ri)
+            ri_err.append(err_ri_by_nsv[flav][n])
+
+        plt.title("Rand index")
+        plt.xlabel("Number of secondary vertices")
+        plt.ylabel("RI")
+        plt.errorbar(ns, ri_val, yerr=ri_err, label=flav, linewidth=0, marker="x", elinewidth=2, capthick=2, capsize=4, ecolor='r', markersize=15)
+        plt.legend()
+        plt.savefig("plots/nsv-ri-" + flav + ".png")
+        plt.show()
+        plt.figure()
+
+    for flav_n, flav in flavours.items():
+        ns = []
+        ari_val = []
+        ari_err = []
+        for n, ari in ari_by_nsv[flav].items():
+            ns.append(n)
+            ari_val.append(ari)
+            ari_err.append(err_ari_by_nsv[flav][n])
+
+        plt.title("Adjusted rand index")
+        plt.xlabel("Number of secondary vertices")
+        plt.ylabel("ARI")
+        plt.errorbar(ns, ari_val, yerr=ari_err, label=flav, linewidth=0, marker="x", elinewidth=2, capthick=2, capsize=4, ecolor='r', markersize=15)
+        plt.legend()
+        plt.savefig("plots/nsv-ari-" + flav + ".png")
+        plt.show()
+        plt.figure()
+
+
+
+
+
+
+    return (df, df_err)
+
+
+"""
+    if real_data:
+
+        print(" --> RI,ARI by num pvertex")
+
+        out = {}
+
+        for score_desc, score_arr in model_scores.items():
+            tmp_arr = {5:[[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[]],
+                       4:[[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[]],
+                       0:[[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[]]}
+            for score, numpv, fl in zip(score_arr, jet_npv, jet_flav):
+                list_index = int(numpv)
+                tmp_arr[fl][list_index].append(score)
+
+            mean_val_arr = {5:[], 4:[], 0:[]}
+            for jet_desc, arr in tmp_arr.items():
+                for a in arr:
+                    if len(a) >= 1:
+                        mean_val_arr[jet_desc].append(np.mean(a))
+
+            out[score_desc] = mean_val_arr
+
+        RI_stuff = out['RI']
+        ARI_stuff = out['ARI']
+
+        print("")
+        print("                NPV   RI      ARI")
+
+        plt.figure()
+        plt.title("RI Number PV dependency")
+        plt.xlabel("Number PV")
+
+        for fl, data_ri in RI_stuff.items():
+            data_ari = ARI_stuff[fl]
+            print("\n--------------------------------------------\n",flavours[fl])
+            for ri, ari, n in zip(data_ri, data_ari, range(len(data_ri))):
+                print("                {0:2d}    {1:1.2f}    {2:1.2f}".format(n+1, ri, ari))
+
+            plt.plot(range(1,len(data_ri)+1), data_ri, label=flavours[fl])
+
+        plt.legend()
+        plt.savefig("npvRI.png")
+        plt.show()
+
+        plt.figure()
+        plt.title("ARI Number PV dependency")
+        plt.xlabel("Number PV")
+
+        for fl, data_ri in RI_stuff.items():
+            data_ari = ARI_stuff[fl]
+            plt.plot(range(1, len(data_ri) + 1), data_ari, label=flavours[fl])
+
+        plt.legend()
+        plt.savefig("npvARI.png")
+        plt.show()
+
+
+        print("\n --> RI,ARI by num svertex")
+
+        out = {}
+
+        for score_desc, score_arr in model_scores.items():
+            tmp_arr = {5:[[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[]],
+                       4:[[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[]],
+                       0:[[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[]]}
+            for score, numpv, fl in zip(score_arr, jet_nsv, jet_flav):
+                list_index = int(numpv)
+                tmp_arr[fl][list_index].append(score)
+
+            mean_val_arr = {5:[], 4:[], 0:[]}
+            for jet_desc, arr in tmp_arr.items():
+                for a in arr:
+                    if len(a) >= 1:
+                        mean_val_arr[jet_desc].append(np.mean(a))
+
+            out[score_desc] = mean_val_arr
+
+        RI_stuff = out['RI']
+        ARI_stuff = out['ARI']
+
+        print("")
+        print("                NSV   RI      ARI")
+
+        plt.figure()
+        plt.title("RI Number SV dependency")
+        plt.xlabel("Number SV")
+
+        for fl, data_ri in RI_stuff.items():
+            data_ari = ARI_stuff[fl]
+            print("\n--------------------------------------------\n", flavours[fl])
+            for ri, ari, n in zip(data_ri, data_ari, range(len(data_ri))):
+                print("                {0:2d}    {1:1.2f}    {2:1.2f}".format(n + 1, ri, ari))
+
+            plt.plot(range(1, len(data_ri) + 1), data_ri, label=flavours[fl])
+
+        plt.legend()
+        plt.savefig("nsvRI.png")
+        plt.show()
+
+        plt.figure()
+        plt.title("ARI Number SV dependency")
+        plt.xlabel("Number SV")
+
+        for fl, data_ri in RI_stuff.items():
+            data_ari = ARI_stuff[fl]
+            plt.plot(range(1, len(data_ri) + 1), data_ari, label=flavours[fl])
+
+        plt.legend()
+        plt.savefig("nsvARI.png")
+        plt.show()
+
+        print("\n --> RI,ARI by num vertex")
+
+        out = {}
+
+        for score_desc, score_arr in model_scores.items():
+            tmp_arr = {
+                5: [[], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+                    [], [], [], [], [], [], []],
+                4: [[], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+                    [], [], [], [], [], [], []],
+                0: [[], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+                    [], [], [], [], [], [], []]}
+            for score, numpv, fl in zip(score_arr, jet_nv, jet_flav):
+                list_index = int(numpv)
+                tmp_arr[fl][list_index].append(score)
+
+            mean_val_arr = {5: [], 4: [], 0: []}
+            for jet_desc, arr in tmp_arr.items():
+                for a in arr:
+                    if len(a) >= 1:
+                        mean_val_arr[jet_desc].append(np.mean(a))
+
+            out[score_desc] = mean_val_arr
+
+        RI_stuff = out['RI']
+        ARI_stuff = out['ARI']
+
+        print("")
+        print("                NV    RI      ARI")
+
+        plt.figure()
+        plt.title("RI Number V dependency")
+        plt.xlabel("Number V")
+
+        for fl, data_ri in RI_stuff.items():
+            data_ari = ARI_stuff[fl]
+            print("\n--------------------------------------------\n", flavours[fl])
+            for ri, ari, n in zip(data_ri, data_ari, range(len(data_ri))):
+                print("                {0:2d}    {1:1.2f}    {2:1.2f}".format(n + 1, ri, ari))
+
+            plt.plot(range(1, len(data_ri) + 1), data_ri, label=flavours[fl])
+
+        plt.legend()
+        plt.savefig("nvRI.png")
+        plt.show()
+
+        plt.figure()
+        plt.title("ARI Number V dependency")
+        plt.xlabel("Number V")
+
+        for fl, data_ri in RI_stuff.items():
+            data_ari = ARI_stuff[fl]
+            plt.plot(range(1, len(data_ri) + 1), data_ari, label=flavours[fl])
+
+        plt.legend()
+        plt.savefig("nvARI.png")
+        plt.show()
+        """
+
+
+def _predict_on_test_set(model, sleeptime, real_data, debug_load):
+    test_ds = JetGraphDataset('test', real_data=real_data, debug_load=debug_load)
     model.eval()
 
     n_tracks = [test_ds[i][0].shape[0] for i in range(len(test_ds))]

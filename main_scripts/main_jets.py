@@ -54,6 +54,7 @@ def parse_args():
     argparser.add_argument('--vram_clear_time', default=0., type=float, help='Timer for prediction to wait for CUDA garbage collection')
     argparser.add_argument('--model_path', default='../experiments/jets_results/jets_20211102_234945_0/exp_model.pt', type=str, help='Path to the saved weights')
     argparser.add_argument('--real_data', default=False, type=bool, help='Should run on real data')
+    argparser.add_argument('--delta_epoch', default=20, type=int, help='When training should finish')
     argparser.set_defaults(save=True, debug_load=False)
 
     args = argparser.parse_args()
@@ -219,6 +220,7 @@ def main():
 
     print(" --> Loading config", flush=True)
     print(" --> Using CUDA clear timer {:1.1f}s".format(config.vram_clear_time))
+    print(" --> Using Delta Epoch {:d}".format(config.delta_epoch))
     if config.real_data:
         print(" --> Running on real data")
     else:
@@ -294,8 +296,8 @@ def main():
                 best_epoch = epoch
                 best_model = copy.deepcopy(model)
 
-            if best_epoch < epoch - 20:
-                print(' --> Early stopping training due to no improvement over the last 20 epochs...')
+            if best_epoch < epoch - config.delta_epoch:
+                print(' --> Early stopping training due to no improvement over the last {:d} epochs...'.format(config.delta_epoch))
                 break
 
         del train_data, val_data
@@ -349,11 +351,14 @@ def main():
         torch.cuda.empty_cache()
 
         print(f' --> Epoch {best_epoch} - evaluating over test set.')
-        test_results = eval_jets_on_test_set(best_model, config.vram_clear_time, config.real_data)
+        test_results, test_results_err = eval_jets_on_test_set(best_model, config.vram_clear_time, config.real_data, config.debug_load)
         print('\n--------------------------------------------------\n -->Test results:')
         print(test_results)
+        print(" --> ERRORS")
+        print(test_results_err)
         if config.save:
             test_results.to_csv(os.path.join(output_dir, "test_results.csv"), index=True)
+            test_results_err.to_csv(os.path.join(output_dir, "test_results_err.csv"), index=True)
 
         print(f' -->Total runtime: {str(datetime.now() - start_time).split(".")[0]}')
     else:
@@ -385,9 +390,11 @@ def main():
         path = config.model_path
         print(" --> Loading model state dict in", path)
         model.load_state_dict(torch.load(path))
-        test_results = eval_jets_on_test_set(model, config.vram_clear_time, config.real_data)
+        test_results, test_results_err = eval_jets_on_test_set(model, config.vram_clear_time, config.real_data, config.debug_load)
         print('\n--------------------------------------------------\n -->Test results:')
         print(test_results)
+        print(" --> ERRORS")
+        print(test_results_err)
         #if config.save:
         #    test_results.to_csv(os.path.join(output_dir, "test_results.csv"), index=True)
 
