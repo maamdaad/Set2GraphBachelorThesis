@@ -55,7 +55,7 @@ class JetGraphDataset(Dataset):
         fname_rave = {'train': 'rave_training_data.root', 'validation': 'rave_validation_data.root', 'test': 'rave_test_data_large.root'}
         fname_real_data = {'train': 'training_real_data.root', 'validation': 'valid_real_data.root', 'test': 'test_real_data.root'}
         if real_data:
-            print(" --> Initializing JetGraphDataset with real data")
+            print(" --> Initializing JetGraphDataset with CMS data")
             self.filename = os.path.join(data_dir, which_set, fname_real_data[which_set])
         else:
             print(" --> Initializing JetGraphDataset with MC data")

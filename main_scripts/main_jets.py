@@ -53,7 +53,7 @@ def parse_args():
     argparser.add_argument('--no_save', dest='save', action='store_false')
     argparser.add_argument('--vram_clear_time', default=0., type=float, help='Timer for prediction to wait for CUDA garbage collection')
     argparser.add_argument('--model_path', default='../experiments/jets_results/jets_20211102_234945_0/exp_model.pt', type=str, help='Path to the saved weights')
-    argparser.add_argument('--real_data', default=False, type=bool, help='Should run on real data')
+    argparser.add_argument('--real_data', default=False, type=bool, help='Should run on CMS data')
     argparser.add_argument('--delta_epoch', default=20, type=int, help='When training should finish')
     argparser.set_defaults(save=True, debug_load=False)
 
@@ -222,7 +222,7 @@ def main():
     print(" --> Using CUDA clear timer {:1.1f}s".format(config.vram_clear_time))
     print(" --> Using Delta Epoch {:d}".format(config.delta_epoch))
     if config.real_data:
-        print(" --> Running on real data")
+        print(" --> Running on CMS data")
     else:
         print(" --> Running on MC data")
 
