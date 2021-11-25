@@ -113,13 +113,21 @@ def eval_jets_on_test_set(model, sleeptime, real_data, debug_load):
     print(' --> Calculating scores on test set')
 
     if len(pred) != len(target):
-        minlen = min([len(pred), len(target), len(jet_flav), len(jet_npv), len(jet_nsv)])
-        print(" --> Error in shapes", [len(pred), len(target), len(jet_flav), len(jet_npv), len(jet_nsv)])
-        target = target[:minlen]
-        jet_flav = jet_flav[:minlen]
-        jet_npv = jet_npv[:minlen]
-        jet_nsv = jet_nsv[:minlen]
-        print(" --> Shortened to", [len(pred), len(target), len(jet_flav), len(jet_npv), len(jet_nsv)])
+        if real_data:
+            minlen = min([len(pred), len(target), len(jet_flav), len(jet_npv), len(jet_nsv)])
+            print(" --> Error in shapes", [len(pred), len(target), len(jet_flav), len(jet_npv), len(jet_nsv)])
+            target = target[:minlen]
+            jet_flav = jet_flav[:minlen]
+            jet_npv = jet_npv[:minlen]
+            jet_nsv = jet_nsv[:minlen]
+            print(" --> Shortened to", [len(pred), len(target), len(jet_flav), len(jet_npv), len(jet_nsv)])
+        else:
+            minlen = min([len(pred), len(target), len(jet_flav)])
+            print(" --> Error in shapes", [len(pred), len(target), len(jet_flav)])
+            target = target[:minlen]
+            jet_flav = jet_flav[:minlen]
+            print(" --> Shortened to", [len(pred), len(target), len(jet_flav)])
+
 
     start = datetime.now()
     model_scores = {}
@@ -132,13 +140,13 @@ def eval_jets_on_test_set(model, sleeptime, real_data, debug_load):
         if len(t) != len(p):
             remAt.append(i)
 
-    target = np.delete(target,remAt)
-    pred = np.delete(pred, remAt)
-    jet_flav = np.delete(jet_flav, remAt)
-    jet_nsv = np.delete(jet_nsv, remAt)
-    jet_npv = np.delete(jet_npv, remAt)
-
     if len(remAt) > 0:
+        target = np.delete(target, remAt)
+        pred = np.delete(pred, remAt)
+        jet_flav = np.delete(jet_flav, remAt)
+        if real_data:
+            jet_nsv = np.delete(jet_nsv, remAt)
+            jet_npv = np.delete(jet_npv, remAt)
         print(" --> Removed", len(remAt), "target, pred pairs because of incorrect shapes (look into this again?!?)")
         print(" --> There are", len(jet_flav), "left")
 
@@ -166,20 +174,6 @@ def eval_jets_on_test_set(model, sleeptime, real_data, debug_load):
     df = pd.DataFrame(index=flavours.values(), columns=metrics_to_table)
     df_err = pd.DataFrame(index=flavours.values(), columns=metrics_to_table)
 
-    ri_by_npv = {'b jets':{}, 'c jets':{}, 'light jets':{}}
-    ri_by_nsv = {'b jets':{}, 'c jets':{}, 'light jets':{}}
-    ari_by_npv = {'b jets':{}, 'c jets':{}, 'light jets':{}}
-    ari_by_nsv = {'b jets':{}, 'c jets':{}, 'light jets':{}}
-    err_ri_by_npv = {'b jets':{}, 'c jets':{}, 'light jets':{}}
-    err_ri_by_nsv = {'b jets':{}, 'c jets':{}, 'light jets':{}}
-    err_ari_by_npv = {'b jets':{}, 'c jets':{}, 'light jets':{}}
-    err_ari_by_nsv = {'b jets':{}, 'c jets':{}, 'light jets':{}}
-
-    max_pv = int(max(jet_npv))
-    max_sv = int(max(jet_nsv))
-
-    print(" --> Found max_pv", max_pv, "and max_sv", max_sv)
-
     for flav_n, flav in flavours.items():
         for metric in metrics_to_table:
             mean_metric = np.mean(model_scores[metric][jet_flav == flav_n])
@@ -187,283 +181,159 @@ def eval_jets_on_test_set(model, sleeptime, real_data, debug_load):
             df.at[flav, metric] = mean_metric
             df_err.at[flav, metric] = err / np.sqrt(len(model_scores[metric][jet_flav == flav_n]))
 
-    for flav_n, flav in flavours.items():
-        for n in range(max_pv):
-            bool_index = np.logical_and(jet_flav == flav_n, jet_npv == n)
-            if max(bool_index) == True:
-                mean_metric_ri = np.mean(model_scores['RI'][bool_index])
-                err_ri = np.std(model_scores['RI'][bool_index])
-                mean_metric_ari = np.mean(model_scores['ARI'][bool_index])
-                err_ari = np.std(model_scores['ARI'][bool_index])
-                ari_by_npv[flav][n] = mean_metric_ari
-                ri_by_npv[flav][n] = mean_metric_ri
-                err_ari_by_npv[flav][n] = err_ari
-                err_ri_by_npv[flav][n] = err_ri
+    if real_data:
+        ri_by_npv = {'b jets':{}, 'c jets':{}, 'light jets':{}}
+        ri_by_nsv = {'b jets':{}, 'c jets':{}, 'light jets':{}}
+        ari_by_npv = {'b jets':{}, 'c jets':{}, 'light jets':{}}
+        ari_by_nsv = {'b jets':{}, 'c jets':{}, 'light jets':{}}
+        err_ri_by_npv = {'b jets':{}, 'c jets':{}, 'light jets':{}}
+        err_ri_by_nsv = {'b jets':{}, 'c jets':{}, 'light jets':{}}
+        err_ari_by_npv = {'b jets':{}, 'c jets':{}, 'light jets':{}}
+        err_ari_by_nsv = {'b jets':{}, 'c jets':{}, 'light jets':{}}
 
-    for flav_n, flav in flavours.items():
-        for n in range(max_sv):
-            bool_index = np.logical_and(jet_flav == flav_n, jet_nsv == n)
-            if max(bool_index) == True:
-                mean_metric_ri = np.mean(model_scores['RI'][bool_index])
-                err_ri = np.std(model_scores['RI'][bool_index])
-                mean_metric_ari = np.mean(model_scores['ARI'][bool_index])
-                err_ari = np.std(model_scores['ARI'][bool_index])
-                ari_by_nsv[flav][n] = mean_metric_ari
-                ri_by_nsv[flav][n] = mean_metric_ri
-                err_ari_by_nsv[flav][n] = err_ari
-                err_ri_by_nsv[flav][n] = err_ri
+        max_pv = int(max(jet_npv))
+        max_sv = int(max(jet_nsv))
 
+        ri_heatmap = {'b jets': np.zeros((max_pv, max_sv)), 'c jets': np.zeros((max_pv, max_sv)),
+                      'light jets': np.zeros((max_pv, max_sv))}
+        ari_heatmap = {'b jets': np.zeros((max_pv, max_sv)), 'c jets': np.zeros((max_pv, max_sv)),
+                      'light jets': np.zeros((max_pv, max_sv))}
 
-    for flav_n, flav in flavours.items():
-        ns = []
-        ri_val = []
-        ri_err = []
-        for n, ri in ri_by_npv[flav].items():
-            ns.append(n)
-            ri_val.append(ri)
-            ri_err.append(err_ri_by_npv[flav][n])
+        print(" --> Found max_pv", max_pv, "and max_sv", max_sv)
 
-        plt.title("Rand index")
-        plt.xlabel("Number of primary vertices")
-        plt.ylabel("RI")
-        plt.errorbar(ns, ri_val, yerr=ri_err, label=flav, linewidth=0, marker="x", elinewidth=2, capthick=2, capsize=4, ecolor='r', markersize=15)
-        plt.legend()
-        plt.savefig("plots/npv-ri-" + flav + ".png")
-        plt.show()
-        plt.figure()
+        for flav_n, flav in flavours.items():
+            for n_p in range(max_pv):
+                for n_s in range(max_sv):
+                    bool_index = np.logical_and(np.logical_and(jet_flav == flav_n, jet_npv == n_p), jet_nsv == n_s)
+                    if max(bool_index):
+                        mean_metric_ri = np.mean(model_scores['RI'][bool_index])
+                        mean_metric_ari = np.mean(model_scores['ARI'][bool_index])
+                        ri_heatmap[flav][n_p][n_s] = mean_metric_ri
+                        ari_heatmap[flav][n_p][n_s] = mean_metric_ari
 
-    for flav_n, flav in flavours.items():
-        ns = []
-        ari_val = []
-        ari_err = []
-        for n, ari in ari_by_npv[flav].items():
-            ns.append(n)
-            ari_val.append(ari)
-            ari_err.append(err_ari_by_npv[flav][n])
+            max_val_ri = np.amax(ri_heatmap[flav])
+            max_val_ari = np.amax(ari_heatmap[flav])
 
-        plt.title("Adjusted rand index")
-        plt.xlabel("Number of primary vertices")
-        plt.ylabel("ARI")
-        plt.errorbar(ns, ari_val, yerr=ari_err, label=flav, linewidth=0, marker="x", elinewidth=2, capthick=2, capsize=4, ecolor='r', markersize=15)
-        plt.legend()
-        plt.savefig("plots/npv-ari-" + flav + ".png")
-        plt.show()
-        plt.figure()
-
-    for flav_n, flav in flavours.items():
-        ns = []
-        ri_val = []
-        ri_err = []
-        for n, ri in ri_by_nsv[flav].items():
-            ns.append(n)
-            ri_val.append(ri)
-            ri_err.append(err_ri_by_nsv[flav][n])
-
-        plt.title("Rand index")
-        plt.xlabel("Number of secondary vertices")
-        plt.ylabel("RI")
-        plt.errorbar(ns, ri_val, yerr=ri_err, label=flav, linewidth=0, marker="x", elinewidth=2, capthick=2, capsize=4, ecolor='r', markersize=15)
-        plt.legend()
-        plt.savefig("plots/nsv-ri-" + flav + ".png")
-        plt.show()
-        plt.figure()
-
-    for flav_n, flav in flavours.items():
-        ns = []
-        ari_val = []
-        ari_err = []
-        for n, ari in ari_by_nsv[flav].items():
-            ns.append(n)
-            ari_val.append(ari)
-            ari_err.append(err_ari_by_nsv[flav][n])
-
-        plt.title("Adjusted rand index")
-        plt.xlabel("Number of secondary vertices")
-        plt.ylabel("ARI")
-        plt.errorbar(ns, ari_val, yerr=ari_err, label=flav, linewidth=0, marker="x", elinewidth=2, capthick=2, capsize=4, ecolor='r', markersize=15)
-        plt.legend()
-        plt.savefig("plots/nsv-ari-" + flav + ".png")
-        plt.show()
-        plt.figure()
+            ri_heatmap[flav] = ri_heatmap[flav] / max_val_ri
+            ari_heatmap[flav] = ari_heatmap[flav] / max_val_ari
 
 
+        for flav_n, flav in flavours.items():
+            for n in range(max_pv):
+                bool_index = np.logical_and(jet_flav == flav_n, jet_npv == n)
+                if max(bool_index) == True:
+                    mean_metric_ri = np.mean(model_scores['RI'][bool_index])
+                    err_ri = np.std(model_scores['RI'][bool_index])
+                    mean_metric_ari = np.mean(model_scores['ARI'][bool_index])
+                    err_ari = np.std(model_scores['ARI'][bool_index])
+                    ari_by_npv[flav][n] = mean_metric_ari
+                    ri_by_npv[flav][n] = mean_metric_ri
+                    err_ari_by_npv[flav][n] = err_ari
+                    err_ri_by_npv[flav][n] = err_ri
+
+        for flav_n, flav in flavours.items():
+            for n in range(max_sv):
+                bool_index = np.logical_and(jet_flav == flav_n, jet_nsv == n)
+                if max(bool_index) == True:
+                    mean_metric_ri = np.mean(model_scores['RI'][bool_index])
+                    err_ri = np.std(model_scores['RI'][bool_index])
+                    mean_metric_ari = np.mean(model_scores['ARI'][bool_index])
+                    err_ari = np.std(model_scores['ARI'][bool_index])
+                    ari_by_nsv[flav][n] = mean_metric_ari
+                    ri_by_nsv[flav][n] = mean_metric_ri
+                    err_ari_by_nsv[flav][n] = err_ari
+                    err_ri_by_nsv[flav][n] = err_ri
 
 
+        for flav_n, flav in flavours.items():
+            ns = []
+            ri_val = []
+            ri_err = []
+            for n, ri in ri_by_npv[flav].items():
+                ns.append(n)
+                ri_val.append(ri)
+                ri_err.append(err_ri_by_npv[flav][n])
 
+            plt.title("Rand index")
+            plt.xlabel("Number of primary vertices")
+            plt.ylabel("RI")
+            plt.errorbar(ns, ri_val, yerr=ri_err, label=flav, linewidth=0, marker="x", elinewidth=2, capthick=2, capsize=4, ecolor='r', markersize=15)
+            plt.legend()
+            plt.savefig("plots/npv-ri-" + flav + ".png")
+            plt.show()
+            plt.figure()
+
+        for flav_n, flav in flavours.items():
+            ns = []
+            ari_val = []
+            ari_err = []
+            for n, ari in ari_by_npv[flav].items():
+                ns.append(n)
+                ari_val.append(ari)
+                ari_err.append(err_ari_by_npv[flav][n])
+
+            plt.title("Adjusted rand index")
+            plt.xlabel("Number of primary vertices")
+            plt.ylabel("ARI")
+            plt.errorbar(ns, ari_val, yerr=ari_err, label=flav, linewidth=0, marker="x", elinewidth=2, capthick=2, capsize=4, ecolor='r', markersize=15)
+            plt.legend()
+            plt.savefig("plots/npv-ari-" + flav + ".png")
+            plt.show()
+            plt.figure()
+
+        for flav_n, flav in flavours.items():
+            ns = []
+            ri_val = []
+            ri_err = []
+            for n, ri in ri_by_nsv[flav].items():
+                ns.append(n)
+                ri_val.append(ri)
+                ri_err.append(err_ri_by_nsv[flav][n])
+
+            plt.title("Rand index")
+            plt.xlabel("Number of secondary vertices")
+            plt.ylabel("RI")
+            plt.errorbar(ns, ri_val, yerr=ri_err, label=flav, linewidth=0, marker="x", elinewidth=2, capthick=2, capsize=4, ecolor='r', markersize=15)
+            plt.legend()
+            plt.savefig("plots/nsv-ri-" + flav + ".png")
+            plt.show()
+            plt.figure()
+
+        for flav_n, flav in flavours.items():
+            ns = []
+            ari_val = []
+            ari_err = []
+            for n, ari in ari_by_nsv[flav].items():
+                ns.append(n)
+                ari_val.append(ari)
+                ari_err.append(err_ari_by_nsv[flav][n])
+
+            plt.title("Adjusted rand index")
+            plt.xlabel("Number of secondary vertices")
+            plt.ylabel("ARI")
+            plt.errorbar(ns, ari_val, yerr=ari_err, label=flav, linewidth=0, marker="x", elinewidth=2, capthick=2, capsize=4, ecolor='r', markersize=15)
+            plt.legend()
+            plt.savefig("plots/nsv-ari-" + flav + ".png")
+            plt.show()
+            plt.figure()
+
+        for flav_n, flav in flavours.items():
+            plt.title("Rand index " + flav)
+            plt.xlabel("Number of secondary vertices")
+            plt.ylabel("Number of primary vertices")
+            plt.imshow(ri_heatmap[flav])
+            plt.savefig("plots/heatmap-ri-" + flav + ".png")
+            plt.show()
+            plt.figure()
+            plt.title("Adjusted rand index " + flav)
+            plt.xlabel("Number of secondary vertices")
+            plt.ylabel("Number of primary vertices")
+            plt.imshow(ari_heatmap[flav])
+            plt.savefig("plots/heatmap-ari-" + flav + ".png")
+            plt.show()
+            plt.figure()
 
     return (df, df_err)
-
-
-"""
-    if real_data:
-
-        print(" --> RI,ARI by num pvertex")
-
-        out = {}
-
-        for score_desc, score_arr in model_scores.items():
-            tmp_arr = {5:[[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[]],
-                       4:[[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[]],
-                       0:[[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[]]}
-            for score, numpv, fl in zip(score_arr, jet_npv, jet_flav):
-                list_index = int(numpv)
-                tmp_arr[fl][list_index].append(score)
-
-            mean_val_arr = {5:[], 4:[], 0:[]}
-            for jet_desc, arr in tmp_arr.items():
-                for a in arr:
-                    if len(a) >= 1:
-                        mean_val_arr[jet_desc].append(np.mean(a))
-
-            out[score_desc] = mean_val_arr
-
-        RI_stuff = out['RI']
-        ARI_stuff = out['ARI']
-
-        print("")
-        print("                NPV   RI      ARI")
-
-        plt.figure()
-        plt.title("RI Number PV dependency")
-        plt.xlabel("Number PV")
-
-        for fl, data_ri in RI_stuff.items():
-            data_ari = ARI_stuff[fl]
-            print("\n--------------------------------------------\n",flavours[fl])
-            for ri, ari, n in zip(data_ri, data_ari, range(len(data_ri))):
-                print("                {0:2d}    {1:1.2f}    {2:1.2f}".format(n+1, ri, ari))
-
-            plt.plot(range(1,len(data_ri)+1), data_ri, label=flavours[fl])
-
-        plt.legend()
-        plt.savefig("npvRI.png")
-        plt.show()
-
-        plt.figure()
-        plt.title("ARI Number PV dependency")
-        plt.xlabel("Number PV")
-
-        for fl, data_ri in RI_stuff.items():
-            data_ari = ARI_stuff[fl]
-            plt.plot(range(1, len(data_ri) + 1), data_ari, label=flavours[fl])
-
-        plt.legend()
-        plt.savefig("npvARI.png")
-        plt.show()
-
-
-        print("\n --> RI,ARI by num svertex")
-
-        out = {}
-
-        for score_desc, score_arr in model_scores.items():
-            tmp_arr = {5:[[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[]],
-                       4:[[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[]],
-                       0:[[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[]]}
-            for score, numpv, fl in zip(score_arr, jet_nsv, jet_flav):
-                list_index = int(numpv)
-                tmp_arr[fl][list_index].append(score)
-
-            mean_val_arr = {5:[], 4:[], 0:[]}
-            for jet_desc, arr in tmp_arr.items():
-                for a in arr:
-                    if len(a) >= 1:
-                        mean_val_arr[jet_desc].append(np.mean(a))
-
-            out[score_desc] = mean_val_arr
-
-        RI_stuff = out['RI']
-        ARI_stuff = out['ARI']
-
-        print("")
-        print("                NSV   RI      ARI")
-
-        plt.figure()
-        plt.title("RI Number SV dependency")
-        plt.xlabel("Number SV")
-
-        for fl, data_ri in RI_stuff.items():
-            data_ari = ARI_stuff[fl]
-            print("\n--------------------------------------------\n", flavours[fl])
-            for ri, ari, n in zip(data_ri, data_ari, range(len(data_ri))):
-                print("                {0:2d}    {1:1.2f}    {2:1.2f}".format(n + 1, ri, ari))
-
-            plt.plot(range(1, len(data_ri) + 1), data_ri, label=flavours[fl])
-
-        plt.legend()
-        plt.savefig("nsvRI.png")
-        plt.show()
-
-        plt.figure()
-        plt.title("ARI Number SV dependency")
-        plt.xlabel("Number SV")
-
-        for fl, data_ri in RI_stuff.items():
-            data_ari = ARI_stuff[fl]
-            plt.plot(range(1, len(data_ri) + 1), data_ari, label=flavours[fl])
-
-        plt.legend()
-        plt.savefig("nsvARI.png")
-        plt.show()
-
-        print("\n --> RI,ARI by num vertex")
-
-        out = {}
-
-        for score_desc, score_arr in model_scores.items():
-            tmp_arr = {
-                5: [[], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
-                    [], [], [], [], [], [], []],
-                4: [[], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
-                    [], [], [], [], [], [], []],
-                0: [[], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
-                    [], [], [], [], [], [], []]}
-            for score, numpv, fl in zip(score_arr, jet_nv, jet_flav):
-                list_index = int(numpv)
-                tmp_arr[fl][list_index].append(score)
-
-            mean_val_arr = {5: [], 4: [], 0: []}
-            for jet_desc, arr in tmp_arr.items():
-                for a in arr:
-                    if len(a) >= 1:
-                        mean_val_arr[jet_desc].append(np.mean(a))
-
-            out[score_desc] = mean_val_arr
-
-        RI_stuff = out['RI']
-        ARI_stuff = out['ARI']
-
-        print("")
-        print("                NV    RI      ARI")
-
-        plt.figure()
-        plt.title("RI Number V dependency")
-        plt.xlabel("Number V")
-
-        for fl, data_ri in RI_stuff.items():
-            data_ari = ARI_stuff[fl]
-            print("\n--------------------------------------------\n", flavours[fl])
-            for ri, ari, n in zip(data_ri, data_ari, range(len(data_ri))):
-                print("                {0:2d}    {1:1.2f}    {2:1.2f}".format(n + 1, ri, ari))
-
-            plt.plot(range(1, len(data_ri) + 1), data_ri, label=flavours[fl])
-
-        plt.legend()
-        plt.savefig("nvRI.png")
-        plt.show()
-
-        plt.figure()
-        plt.title("ARI Number V dependency")
-        plt.xlabel("Number V")
-
-        for fl, data_ri in RI_stuff.items():
-            data_ari = ARI_stuff[fl]
-            plt.plot(range(1, len(data_ri) + 1), data_ari, label=flavours[fl])
-
-        plt.legend()
-        plt.savefig("nvARI.png")
-        plt.show()
-        """
 
 
 def _predict_on_test_set(model, sleeptime, real_data, debug_load):
