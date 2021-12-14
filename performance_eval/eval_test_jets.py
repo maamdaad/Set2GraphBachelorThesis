@@ -10,6 +10,7 @@ from sklearn import metrics
 import mpmath
 import matplotlib.pyplot as plt
 import mplhep as hep
+from tqdm import tqdm
 hep.style.use(hep.style.CMS)
 
 from dataloaders.jets_loader import JetGraphDataset
@@ -30,20 +31,6 @@ def _get_rand_index(labels, predictions):
                 correct_pairs += 1
 
     return correct_pairs / n_pairs
-
-"""
-
-def _get_rand_index(labels, predictions):
-    n_items = len(labels)
-
-    correct_pairs = 0
-
-    for i in range(n_items):
-        if labels[i] == predictions[i]:
-            correct_pairs +=1
-
-    return correct_pairs / n_items
-"""
 
 def _error_count(labels, predictions):
     n_items = len(labels)
@@ -104,6 +91,9 @@ def eval_jets_on_test_set(model, sleeptime, real_data, debug_load):
         jet_flav = np.array(test_ds.jet_arrays[b'jet_flav'], dtype=np.float32)
         jet_nsv = np.array(test_ds.jet_arrays[b'jet_nsv'], dtype=np.float32)
         jet_npv = np.array(test_ds.jet_arrays[b'jet_npv'], dtype=np.float32)
+        jet_flav_uncut = np.array(test_ds.jet_arrays[b'jet_flav_uncut'], dtype=np.float32)
+        jet_nsv_uncut = np.array(test_ds.jet_arrays[b'jet_nsv_uncut'], dtype=np.float32)
+        jet_npv_uncut = np.array(test_ds.jet_arrays[b'jet_npv_uncut'], dtype=np.float32)
 
     else:
         test_ds = JetGraphDataset('test', real_data=False, add_jet_flav=True, correct_jet_flav=False, load_to_cuda_device=False, debug_load=debug_load)
@@ -141,13 +131,17 @@ def eval_jets_on_test_set(model, sleeptime, real_data, debug_load):
             remAt.append(i)
 
     if len(remAt) > 0:
+        print("!! FATAL ERROR !! ", len(remAt), "target, pred pairs did not fit in shapes. Should I continue?")
+        if input(" --> (y/N): ") != "y":
+            return pd.DataFrame(["ERROR"]), pd.DataFrame(["ERROR"])
+
         target = np.delete(target, remAt)
         pred = np.delete(pred, remAt)
         jet_flav = np.delete(jet_flav, remAt)
         if real_data:
             jet_nsv = np.delete(jet_nsv, remAt)
             jet_npv = np.delete(jet_npv, remAt)
-        print(" --> Removed", len(remAt), "target, pred pairs because of incorrect shapes (look into this again?!?)")
+
         print(" --> There are", len(jet_flav), "left")
 
     RI_func = np.vectorize(_get_rand_index)
@@ -166,6 +160,8 @@ def eval_jets_on_test_set(model, sleeptime, real_data, debug_load):
     print(' --> F1')
     model_scores['F1'] = F1_func(target, pred)
 
+    model_scores['ARI'] = np.abs(model_scores['ARI'])
+
     end = datetime.now()
     print(f' --> Done Calculating, took me: {str(end - start).split(".")[0]}')
 
@@ -182,6 +178,11 @@ def eval_jets_on_test_set(model, sleeptime, real_data, debug_load):
             df_err.at[flav, metric] = err / np.sqrt(len(model_scores[metric][jet_flav == flav_n]))
 
     if real_data:
+
+        start = datetime.now()
+
+        print(" --> Calculating plots, only on CMS data")
+
         ri_by_npv = {'b jets':{}, 'c jets':{}, 'light jets':{}}
         ri_by_nsv = {'b jets':{}, 'c jets':{}, 'light jets':{}}
         ari_by_npv = {'b jets':{}, 'c jets':{}, 'light jets':{}}
@@ -202,7 +203,8 @@ def eval_jets_on_test_set(model, sleeptime, real_data, debug_load):
         print(" --> Found max_pv", max_pv, "and max_sv", max_sv)
 
         for flav_n, flav in flavours.items():
-            for n_p in range(max_pv):
+            print(" --> Calculating heatmap for", flav)
+            for n_p in tqdm(range(max_pv)):
                 for n_s in range(max_sv):
                     bool_index = np.logical_and(np.logical_and(jet_flav == flav_n, jet_npv == n_p), jet_nsv == n_s)
                     if max(bool_index):
@@ -211,39 +213,94 @@ def eval_jets_on_test_set(model, sleeptime, real_data, debug_load):
                         ri_heatmap[flav][n_p][n_s] = mean_metric_ri
                         ari_heatmap[flav][n_p][n_s] = mean_metric_ari
 
-            max_val_ri = np.amax(ri_heatmap[flav])
-            max_val_ari = np.amax(ari_heatmap[flav])
-
-            ri_heatmap[flav] = ri_heatmap[flav] / max_val_ri
-            ari_heatmap[flav] = ari_heatmap[flav] / max_val_ari
-
-
         for flav_n, flav in flavours.items():
-            for n in range(max_pv):
+            print(" --> Calculating (A)RI by npv for", flav)
+            for n in tqdm(range(max_pv)):
                 bool_index = np.logical_and(jet_flav == flav_n, jet_npv == n)
                 if max(bool_index) == True:
                     mean_metric_ri = np.mean(model_scores['RI'][bool_index])
-                    err_ri = np.std(model_scores['RI'][bool_index])
+                    err_ri = np.std(model_scores['RI'][bool_index]) / np.sqrt(len(model_scores['RI'][bool_index]))
                     mean_metric_ari = np.mean(model_scores['ARI'][bool_index])
-                    err_ari = np.std(model_scores['ARI'][bool_index])
+                    err_ari = np.std(model_scores['ARI'][bool_index]) / np.sqrt(len(model_scores['ARI'][bool_index]))
                     ari_by_npv[flav][n] = mean_metric_ari
                     ri_by_npv[flav][n] = mean_metric_ri
                     err_ari_by_npv[flav][n] = err_ari
                     err_ri_by_npv[flav][n] = err_ri
 
+
         for flav_n, flav in flavours.items():
-            for n in range(max_sv):
+            print(" --> Calculating (A)RI by nsv for", flav)
+            for n in tqdm(range(max_sv)):
                 bool_index = np.logical_and(jet_flav == flav_n, jet_nsv == n)
                 if max(bool_index) == True:
                     mean_metric_ri = np.mean(model_scores['RI'][bool_index])
-                    err_ri = np.std(model_scores['RI'][bool_index])
+                    err_ri = np.std(model_scores['RI'][bool_index]) / np.sqrt(len(model_scores['RI'][bool_index]))
                     mean_metric_ari = np.mean(model_scores['ARI'][bool_index])
-                    err_ari = np.std(model_scores['ARI'][bool_index])
+                    err_ari = np.std(model_scores['ARI'][bool_index]) / np.sqrt(len(model_scores['ARI'][bool_index]))
                     ari_by_nsv[flav][n] = mean_metric_ari
                     ri_by_nsv[flav][n] = mean_metric_ri
                     err_ari_by_nsv[flav][n] = err_ari
                     err_ri_by_nsv[flav][n] = err_ri
 
+        flav_hist_sv = {'b jets': np.zeros(max_sv), 'c jets': np.zeros(max_sv),
+                      'light jets': np.zeros(max_sv)}
+
+        for flav_n, flav in flavours.items():
+            print(" --> Calculating flav sv Hist", flav)
+            for n in tqdm(range(max_sv)):
+                bool_index = np.logical_and(jet_flav == flav_n, jet_nsv == n)
+                if max(bool_index) == True:
+                    flav_hist_sv[flav][n] = len(jet_flav[bool_index])
+
+        flav_hist_pv = {'b jets': np.zeros(max_pv), 'c jets': np.zeros(max_pv),
+                        'light jets': np.zeros(max_pv)}
+
+        for flav_n, flav in flavours.items():
+            print(" --> Calculating flav pv Hist", flav)
+            for n in tqdm(range(max_pv)):
+                bool_index = np.logical_and(jet_flav == flav_n, jet_npv == n)
+                if max(bool_index) == True:
+                    flav_hist_pv[flav][n] = len(jet_flav[bool_index])
+
+        max_pv_uncut = int(max(jet_npv_uncut))
+        max_sv_uncut = int(max(jet_nsv_uncut))
+
+        flav_hist_sv_uncut = {'b jets': np.zeros(max_sv_uncut), 'c jets': np.zeros(max_sv_uncut),
+                        'light jets': np.zeros(max_sv_uncut)}
+
+        for flav_n, flav in flavours.items():
+            print(" --> Calculating uncut sv flav Hist", flav)
+            for n in tqdm(range(max_sv_uncut)):
+                bool_index = np.logical_and(jet_flav_uncut == flav_n, jet_nsv_uncut == n)
+                if max(bool_index) == True:
+                    flav_hist_sv_uncut[flav][n] = len(jet_flav_uncut[bool_index])
+
+        flav_hist_pv_uncut = {'b jets': np.zeros(max_pv_uncut), 'c jets': np.zeros(max_pv_uncut),
+                        'light jets': np.zeros(max_pv_uncut)}
+
+        for flav_n, flav in flavours.items():
+            print(" --> Calculating uncut pv flav Hist", flav)
+            for n in tqdm(range(max_pv_uncut)):
+                bool_index = np.logical_and(jet_flav_uncut == flav_n, jet_npv_uncut == n)
+                if max(bool_index) == True:
+                    flav_hist_pv_uncut[flav][n] = len(jet_flav_uncut[bool_index])
+
+        for flav, ari in ari_by_npv.items():
+            for n, ari_val in ari.items():
+                if ari_val > 1:
+                    ari_by_npv[flav][n] = 1
+                elif ari_val < 0:
+                    ari_by_npv[flav][n] = 0
+
+        for flav, ari in ari_by_nsv.items():
+            for n, ari_val in ari.items():
+                if ari_val > 1:
+                    ari_by_nsv[flav][n] = 1
+                elif ari_val < 0:
+                    ari_by_nsv[flav][n] = 0
+
+
+        print(" --> Drawing plots, only on CMS data")
 
         for flav_n, flav in flavours.items():
             ns = []
@@ -317,21 +374,65 @@ def eval_jets_on_test_set(model, sleeptime, real_data, debug_load):
             plt.show()
             plt.figure()
 
+        fig, ax = plt.subplots(1,3)
+        i = 0
+
         for flav_n, flav in flavours.items():
-            plt.title("Rand index " + flav)
+            ax[i].set_title("RI " + flav)
+            im = ax[i].pcolor(ri_heatmap[flav])
+            i += 1
+
+        ax[0].set_ylabel("Number of primary vertices")
+        ax[2].set_xlabel("Number of secondary vertices")
+        plt.colorbar(im)
+        plt.savefig("plots/heatmap-ri.png")
+        plt.show()
+        plt.figure()
+
+        fig, ax = plt.subplots(1, 3)
+        i = 0
+
+        for flav_n, flav in flavours.items():
+            ax[i].set_title("ARI " + flav)
+            im = ax[i].pcolor(ari_heatmap[flav])
+            i += 1
+
+        ax[0].set_ylabel("Number of primary vertices")
+        ax[2].set_xlabel("Number of secondary vertices")
+        plt.colorbar(im)
+        plt.savefig("plots/heatmap-ari.png")
+        plt.show()
+        plt.figure()
+
+        for flav_n, flav in flavours.items():
+            plt.yscale("log")
+            hist = flav_hist_sv[flav]
+            plt.bar(range(max_sv), hist, label=flav, width=1, fill=False, edgecolor='blue')
+            hist = flav_hist_sv_uncut[flav]
+            plt.bar(range(max_sv_uncut), hist, label=flav+" uncut", width=1, fill=False, edgecolor='red')
+            plt.ylabel("Number of Jets")
             plt.xlabel("Number of secondary vertices")
-            plt.ylabel("Number of primary vertices")
-            plt.imshow(ri_heatmap[flav])
-            plt.savefig("plots/heatmap-ri-" + flav + ".png")
+            plt.legend()
+            plt.title("Number of Jets per secondary vertex")
+            plt.savefig("plots/hist-SV-"+flav+".png")
             plt.show()
             plt.figure()
-            plt.title("Adjusted rand index " + flav)
-            plt.xlabel("Number of secondary vertices")
-            plt.ylabel("Number of primary vertices")
-            plt.imshow(ari_heatmap[flav])
-            plt.savefig("plots/heatmap-ari-" + flav + ".png")
+
+            plt.yscale("log")
+            hist = flav_hist_pv[flav]
+            plt.bar(range(max_pv), hist, label=flav, width=1, fill=False, edgecolor='blue')
+            hist = flav_hist_pv_uncut[flav]
+            plt.bar(range(max_pv_uncut), hist, label=flav + " uncut", width=1, fill=False, edgecolor='red')
+            plt.ylabel("Number of Jets")
+            plt.xlabel("Number of primary vertices")
+            plt.legend()
+            plt.title("Number of Jets per primary vertex")
+            plt.savefig("plots/hist-PV-" + flav + ".png")
             plt.show()
             plt.figure()
+
+        end = datetime.now()
+        print(f' --> Done Calculating, took me: {str(end - start).split(".")[0]}')
 
     return (df, df_err)
 
@@ -349,6 +450,7 @@ def _predict_on_test_set(model, sleeptime, real_data, debug_load):
 
     for tracks_in_jet in range(2, np.amax(n_tracks)+1):
         trk_indxs = np.where(np.array(n_tracks) == tracks_in_jet)[0]
+
         if len(trk_indxs) < 1:
             continue
         indx_list += list(trk_indxs)
@@ -391,6 +493,7 @@ def _predict_on_test_set(model, sleeptime, real_data, debug_load):
             time.sleep(sleeptime)
 
     sorted_predictions = [list(x) for _, x in sorted(zip(indx_list, predictions))]
+
     del predictions, indx_list
     torch.cuda.empty_cache()
     return sorted_predictions

@@ -34,9 +34,16 @@ def transform_features(transform_list, arr):
         new_arr[col_i,:] = (arr[col_i,:] - mean) / std
     return new_arr
 
+def get_max_in_jagged_array(arr):
+    max_n = -10000000
+    for a in arr:
+        if max(a) > max_n:
+            max_n = max(a)
+    return max_n
+
 
 class JetGraphDataset(Dataset):
-    def __init__(self, which_set, debug_load=False,add_jet_flav=False,add_rave_file=False,real_data=False,correct_jet_flav=False,load_to_cuda_device=True):
+    def __init__(self, which_set, debug_load=False,add_jet_flav=False,add_rave_file=False,real_data=False,correct_jet_flav=False,load_to_cuda_device=True, noise=False):
         """
         Initialization
         :param which_set: either "train", "validation" or "test"
@@ -49,7 +56,7 @@ class JetGraphDataset(Dataset):
         self.real_data = real_data
         self.correct_jet_flav = correct_jet_flav
         self.load_to_cuda_device = load_to_cuda_device
-
+        self.noise = False
         assert which_set in ['train', 'validation', 'test']
         fname = {'train': 'training_data.root', 'validation': 'valid_data.root', 'test': 'test_data.root'}
         fname_rave = {'train': 'rave_training_data.root', 'validation': 'rave_validation_data.root', 'test': 'rave_test_data_large.root'}
@@ -143,7 +150,6 @@ class JetGraphDataset(Dataset):
         jet_eta = tree['Jet_eta'].array()
         jet_phi = tree['Jet_phi'].array()
         jet_mass = tree['Jet_mass'].array()
-        jet_ntracks = tree['Jet_ntracks'].array()
         jet_flav = tree['Jet_hadronFlavour'].array()
         jet_nFirstTrack = tree['Jet_nFirstTrack'].array()
         jet_nLastTrack = tree['Jet_nLastTrack'].array()
@@ -159,10 +165,9 @@ class JetGraphDataset(Dataset):
         trk_PV = tree['Track_PV'].array()
         trk_SV = tree['Track_SV'].array()
 
-        if which_set == "test":
-            print(" --> Loading nSV and nPV")
-            nsv = tree['nSV'].array()
-            npv = tree['nPV'].array()
+        print(" --> Loading nSV and nPV")
+        nsv = tree['nSV'].array()
+        npv = tree['nPV'].array()
 
         out_jet_pt = []
         out_jet_eta = []
@@ -170,9 +175,11 @@ class JetGraphDataset(Dataset):
         out_jet_mass = []
         out_jet_flav = []
 
-        if which_set == "test":
-            out_jet_num_sv = []
-            out_jet_num_pv = []
+        out_jet_num_sv = []
+        out_jet_num_pv = []
+        out_jet_num_pv_uncut = []
+        out_jet_num_sv_uncut = []
+        out_jet_flav_uncut = []
 
         out_trk_pt = []
         out_trk_eta = []
@@ -193,9 +200,7 @@ class JetGraphDataset(Dataset):
             jet_nFirstTrack_i = jet_nFirstTrack[index]
             jet_nLastTrack_i = jet_nLastTrack[index]
 
-            if which_set == "test":
-                npv_i = npv[index]
-                nsv_i = nsv[index]
+            npv_i = npv[index]
 
             trk_pt_i = trk_pt[index]
             trk_eta_i = trk_eta[index]
@@ -210,6 +215,7 @@ class JetGraphDataset(Dataset):
 
                 begin = jet_nFirstTrack_ij
                 end = jet_nLastTrack_ij
+                nsv_i = jet_nLastSV_ij - jet_nFirstSV_ij
 
                 trk_PV_tmp = trk_PV_i[begin:end]
                 trk_SV_tmp = trk_SV_i[begin:end]
@@ -221,7 +227,7 @@ class JetGraphDataset(Dataset):
                 trk_charge_tmp = trk_charge_i[begin:end]
 
                 if len(trk_PV_tmp) != len(trk_SV_tmp):
-                    print("!! FATALERROR !!")
+                    print("!! FATALERROR !! : ERROR in shapes in handling data")
                     return
 
                 trk_vtx_index_tmp = []
@@ -232,11 +238,12 @@ class JetGraphDataset(Dataset):
                         removeAt.append(j-int(jet_nFirstTrack_ij))
                         continue
                     if trk_SV_i[j] >= jet_nFirstSV_ij and trk_SV_i[j] <= jet_nLastSV_ij:
-                        trk_vtx_index_tmp.append(trk_SV_i[j])
+                        trk_vtx_index_tmp.append(trk_SV_i[j] + 1)
                     else:
-                        removeAt.append(j - int(jet_nFirstTrack_ij))
+                        # removeAt.append(j - int(jet_nFirstTrack_ij))
+                        trk_vtx_index_tmp.append(0)
 
-                if len(trk_vtx_index_tmp) > 0:
+                if len(trk_vtx_index_tmp) >= 2 and nsv_i >= 1:
 
                     trk_pt_tmp = np.delete(trk_pt_tmp, removeAt)
                     trk_eta_tmp = np.delete(trk_eta_tmp, removeAt)
@@ -250,23 +257,34 @@ class JetGraphDataset(Dataset):
                         print("!! FATAL ERROR !!")
                         return
 
-                    out_trk_pt.append(np.array(trk_pt_tmp, dtype=np.float32))
-                    out_trk_eta.append(np.array(trk_eta_tmp, dtype=np.float32))
-                    out_trk_phi.append(np.array(trk_phi_tmp, dtype=np.float32))
-                    out_trk_d0.append(np.array(trk_d0_tmp, dtype=np.float32))
-                    out_trk_z0.append(np.array(trk_z0_tmp, dtype=np.float32))
-                    out_trk_charge.append(np.array(trk_charge_tmp, dtype=np.float32))
-                    out_trk_vtx_index.append(np.array(trk_vtx_index_tmp, dtype=np.float32))
+                    out_trk_pt.append(trk_pt_tmp)
+                    out_trk_eta.append(trk_eta_tmp)
+                    out_trk_phi.append(trk_phi_tmp)
+                    out_trk_d0.append(trk_d0_tmp)
+                    out_trk_z0.append(trk_z0_tmp)
+                    out_trk_charge.append(trk_charge_tmp)
+                    out_trk_vtx_index.append(trk_vtx_index_tmp)
 
                     out_jet_pt.append(jet_pt_ij)
                     out_jet_eta.append(jet_eta_ij)
                     out_jet_phi.append(jet_phi_ij)
                     out_jet_mass.append(jet_mass_ij)
+                    out_jet_num_sv.append(nsv_i)
+                    out_jet_num_pv.append(npv_i)
+                    out_jet_num_sv_uncut.append(nsv_i)
+                    out_jet_num_pv_uncut.append(npv_i)
                     if self.add_jet_flav:
                         out_jet_flav.append(jet_flav_ij)
-                    if which_set == "test":
-                        out_jet_num_sv.append(nsv_i)
-                        out_jet_num_pv.append(npv_i)
+                        out_jet_flav_uncut.append(jet_flav_ij)
+
+
+
+
+                else:
+                    out_jet_num_sv_uncut.append(nsv_i)
+                    out_jet_num_pv_uncut.append(npv_i)
+                    if self.add_jet_flav:
+                        out_jet_flav_uncut.append(jet_flav_ij)
 
 
         print(" --> Loaded",len(out_jet_pt),"Jets with",len(out_trk_vtx_index),"vtx info arrays from CMS data")
@@ -296,6 +314,30 @@ class JetGraphDataset(Dataset):
 
         out_trk_ctg_theta = np.array(out_trk_ctg_theta, dtype=np.object)
 
+        print(" --> Normalizing data")
+        out_jet_pt /= np.amax(out_jet_pt)
+        out_jet_eta /= np.amax(out_jet_eta)
+        out_jet_phi /= np.amax(out_jet_phi)
+        out_jet_mass /= np.amax(out_jet_mass)
+
+        out_trk_d0_max = get_max_in_jagged_array(out_trk_d0)
+        out_trk_z0_max = get_max_in_jagged_array(out_trk_z0)
+        out_trk_phi_max = get_max_in_jagged_array(out_trk_phi)
+        out_trk_ctg_theta_max = get_max_in_jagged_array(out_trk_ctg_theta)
+        out_trk_pt_max = get_max_in_jagged_array(out_trk_pt)
+
+        print(" --> Normalizing in track arrays")
+
+        for i in tqdm(range(len(out_jet_pt))):
+            out_trk_d0[i] /= out_trk_d0_max
+            out_trk_z0[i] /= out_trk_z0_max
+            out_trk_phi[i] /= out_trk_phi_max
+            out_trk_ctg_theta[i] /= out_trk_ctg_theta_max
+            out_trk_pt[i] /= out_trk_pt_max
+            if max(out_trk_pt[i]) > 1:
+                print(" !! ERROR !! when normalizing")
+
+
         self.n_nodes = np.array([len(x) for x in out_trk_vtx_index])
         self.jet_arrays = {
             b'jet_pt': out_jet_pt,
@@ -311,11 +353,13 @@ class JetGraphDataset(Dataset):
             b'trk_vtx_index': out_trk_vtx_index,
         }
 
-        if which_set == "test":
-            print(" --> Saving nPV and nSV")
-            self.jet_arrays[b'jet_npv'] = out_jet_num_pv
-            self.jet_arrays[b'jet_nsv'] = out_jet_num_sv
-            #print(self.jet_arrays[b'jet_npv'], "\n", self.jet_arrays[b'jet_nsv'])
+        print(" --> Saving nPV and nSV")
+        self.jet_arrays[b'jet_npv'] = out_jet_num_pv
+        self.jet_arrays[b'jet_nsv'] = out_jet_num_sv
+        self.jet_arrays[b'jet_nsv_uncut'] = out_jet_num_sv_uncut
+        self.jet_arrays[b'jet_npv_uncut'] = out_jet_num_pv_uncut
+        self.jet_arrays[b'jet_flav_uncut'] = out_jet_flav_uncut
+        #print(self.jet_arrays[b'jet_npv'], "\n", self.jet_arrays[b'jet_nsv'])
 
         if self.add_jet_flav:
             if self.correct_jet_flav:

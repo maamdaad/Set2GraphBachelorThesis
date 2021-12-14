@@ -1,3 +1,4 @@
+print(" --> Importing...")
 import random
 import os
 import sys
@@ -23,6 +24,9 @@ python <path_to>/SetToGraph/main_scripts/main_jets.py
 project_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
 sys.path.append(project_dir)
 os.chdir(project_dir)
+
+
+print(" --> Importing internal stuff...")
 
 # Project dependencies
 from models.set_to_graph import SetToGraph
@@ -73,7 +77,6 @@ def calc_metrics(pred_partitions, partitions_as_graph, partitions, accum_info):
         pred_onehot.scatter_(2, pred_partitions, 1)
         pred_matrices = torch.matmul(pred_onehot, pred_onehot.transpose(1, 2))
 
-        # calc fscore, precision, recall
         tp = (pred_matrices * partitions_as_graph).sum(dim=(1, 2)) - N  # Don't care about diagonals
         fp = (pred_matrices * (1 - partitions_as_graph)).sum(dim=(1, 2))
         fn = ((1 - pred_matrices) * partitions_as_graph).sum(dim=(1, 2))
@@ -85,9 +88,17 @@ def calc_metrics(pred_partitions, partitions_as_graph, partitions, accum_info):
         equiv_pairs = (pred_matrices == partitions_as_graph).float()
         accum_info['accuracy'] += equiv_pairs.mean(dim=(1, 2)).sum().item()
         # ignore pairs of same node
-        equiv_pairs[:, torch.arange(N), torch.arange(N)] = torch.zeros((N,), device=DEVICE)  
-        ri_results = equiv_pairs.sum(dim=(1, 2)) / (N*(N-1))
+        equiv_pairs[:, torch.arange(N), torch.arange(N)] = torch.zeros((N,), device=DEVICE)
+        ri_results = equiv_pairs.sum(dim=(1, 2)) / (N * (N - 1))
         accum_info['ri'] += ri_results.sum().item()
+
+        # min_pred_matrices = float(torch.min(pred_matrices))
+        # min_partitions_as_graphs = float(torch.min(partitions_as_graph))
+        #
+        # if min_pred_matrices == min_partitions_as_graphs:
+        #     print("JUHUU, min(pred_matrices)", min_pred_matrices)
+        #     # calc fscore, precision, recall
+        #
 
     return accum_info
 
@@ -121,6 +132,7 @@ def infer_clusters(edge_vals):
 
 
 def get_loss(y_hat, y):
+
     # No loss on diagonal
     B, N, _ = y_hat.shape
     y_hat[:, torch.arange(N), torch.arange(N)] = torch.finfo(y_hat.dtype).max  # to be "1" after sigmoid
@@ -133,8 +145,15 @@ def get_loss(y_hat, y):
     fn = ((1. - y_hat) * y).sum(dim=(1, 2))
     fp = (y_hat * (1. - y)).sum(dim=(1, 2))
     loss = loss - ((2 * tp) / (2 * tp + fp + fn + 1e-10)).sum()  # fscore
+    tp = tp.sum().item()
+    fp = fp.sum().item()
+    fn = fn.sum().item()
+    fscore = (2 * tp) / (2 * tp + fp + fn + 1e-10)
+    precision = tp / (tp + fp)
+    recall = tp / (tp + fn)
 
-    return loss
+    return loss, fscore, precision, recall
+
 
 
 def train(data, model, optimizer):
@@ -171,7 +190,10 @@ def do_epoch(data, model, optimizer=None):
         else:
             edge_vals = model(sets).squeeze(1)  # B,N,N
             pred_partitions = infer_clusters(edge_vals)
-            loss = get_loss(edge_vals, partitions_as_graph)
+            loss, fscore, precision, recall = get_loss(edge_vals, partitions_as_graph)
+            accum_info['fscore'] += fscore * batch_size
+            accum_info['precision'] += precision * batch_size
+            accum_info['recall'] += recall * batch_size
 
         if optimizer is not None:
             # backprop for training epochs only
@@ -180,7 +202,7 @@ def do_epoch(data, model, optimizer=None):
             optimizer.step()
 
         # calc ri
-        accum_info = calc_metrics(pred_partitions, partitions_as_graph, partitions, accum_info)
+        #accum_info = calc_metrics(pred_partitions, partitions_as_graph, partitions, accum_info)
 
         # update results from train_step func
         accum_info['loss'] += loss.item() * batch_size
@@ -200,6 +222,7 @@ def do_epoch(data, model, optimizer=None):
 
 
 def main():
+    print(" --> Starting...")
     start_time = datetime.now()
 
     seed = 42
@@ -221,6 +244,8 @@ def main():
     print(" --> Loading config", flush=True)
     print(" --> Using CUDA clear timer {:1.1f}s".format(config.vram_clear_time))
     print(" --> Using Delta Epoch {:d}".format(config.delta_epoch))
+    print(" --> Using Batch size {:f}".format(config.bs))
+    print(" --> Using Learning rate {:f}".format(config.lr))
     if config.real_data:
         print(" --> Running on CMS data")
     else:
@@ -245,6 +270,7 @@ def main():
                                set_model_type='RNN')
         elif config.baseline == 'siam':
             model = SetToGraphSiam(10, [384, 384, 384, 384, 5], hidden_mlp=[256])
+
         else:
             assert config.baseline is None
             model = SetToGraph(10,
@@ -266,8 +292,14 @@ def main():
         # Metrics
         train_loss = np.empty(config.epochs, float)
         train_ri = np.empty(config.epochs, float)
+        train_f = np.empty(config.epochs, float)
+        train_r = np.empty(config.epochs, float)
+        train_p = np.empty(config.epochs, float)
         val_loss = np.empty(config.epochs, float)
         val_ri = np.empty(config.epochs, float)
+        val_f = np.empty(config.epochs, float)
+        val_r = np.empty(config.epochs, float)
+        val_p = np.empty(config.epochs, float)
 
         best_epoch = -1
         best_val_ri = -1
@@ -284,12 +316,16 @@ def main():
                   " loss:{loss:.6f} -- mean_ri:{ri:.4f} -- fscore:{fscore:.4f} -- recall:{recall:.4f}"
                   " -- precision:{precision:.4f} -- runtime:{run_time}".format(**train_info), flush=True)
             train_loss[epoch - 1], train_ri[epoch - 1] = train_info['loss'], train_info['ri']
+            train_p[epoch -1], train_f[epoch-1], train_r[epoch-1] = train_info['precision'], train_info['fscore'], train_info['recall']
 
             val_info = evaluate(val_data, model)
             print(f"\t --> Val      - {epoch:4}",
                   " loss:{loss:.6f} -- mean_ri:{ri:.4f} -- fscore:{fscore:.4f} -- recall:{recall:.4f}"
                   " -- precision:{precision:.4f}  -- runtime:{run_time}\n".format(**val_info), flush=True)
             val_loss[epoch - 1], val_ri[epoch - 1] = val_info['loss'], val_info['ri']
+            val_p[epoch - 1], val_f[epoch - 1], val_r[epoch - 1] = val_info['precision'], val_info['fscore'], val_info['recall']
+
+            #input(" --> Weiter? ")
 
             if val_info['fscore'] > best_val_fscore:
                 best_val_fscore = val_info['fscore']
@@ -329,8 +365,15 @@ def main():
             shutil.copyfile(__file__, os.path.join(output_dir, 'code.py'))
             results_dict = {'train_loss': train_loss,
                             'train_ri': train_ri,
+                            'train_r': train_r,
+                            'train_p': train_p,
+                            'train_f': train_f,
                             'val_loss': val_loss,
-                            'val_ri': val_ri}
+                            'val_ri': val_ri,
+                            'val_r': val_r,
+                            'val_p': val_p,
+                            'val_f': val_f}
+
             df = pd.DataFrame(results_dict)
             df.index.name = 'epochs'
             df.to_csv(os.path.join(output_dir, "metrics.csv"), index=False)
