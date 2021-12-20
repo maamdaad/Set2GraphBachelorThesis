@@ -155,6 +155,7 @@ class JetGraphDataset(Dataset):
         jet_nLastTrack = tree['Jet_nLastTrack'].array()
         jet_nFirstSV = tree['Jet_nFirstSV'].array()
         jet_nLastSV = tree['Jet_nLastSV'].array()
+        jet_ntrk = tree['nTrack'].array()
 
         trk_pt = tree['Track_pt'].array()
         trk_phi = tree['Track_phi'].array()
@@ -179,6 +180,8 @@ class JetGraphDataset(Dataset):
         out_jet_num_pv = []
         out_jet_num_pv_uncut = []
         out_jet_num_sv_uncut = []
+        out_jet_ntrk = []
+        out_jet_ntrk_uncut = []
         out_jet_flav_uncut = []
 
         out_trk_pt = []
@@ -199,6 +202,7 @@ class JetGraphDataset(Dataset):
             jet_nLastSV_i = jet_nLastSV[index]
             jet_nFirstTrack_i = jet_nFirstTrack[index]
             jet_nLastTrack_i = jet_nLastTrack[index]
+            jet_ntrk_i = jet_ntrk[index]
 
             npv_i = npv[index]
 
@@ -273,16 +277,16 @@ class JetGraphDataset(Dataset):
                     out_jet_num_pv.append(npv_i)
                     out_jet_num_sv_uncut.append(nsv_i)
                     out_jet_num_pv_uncut.append(npv_i)
+                    out_jet_ntrk.append(len(trk_vtx_index_tmp))
+                    out_jet_ntrk_uncut.append(jet_ntrk_i)
                     if self.add_jet_flav:
                         out_jet_flav.append(jet_flav_ij)
                         out_jet_flav_uncut.append(jet_flav_ij)
 
-
-
-
                 else:
                     out_jet_num_sv_uncut.append(nsv_i)
                     out_jet_num_pv_uncut.append(npv_i)
+                    out_jet_ntrk_uncut.append(jet_ntrk_i)
                     if self.add_jet_flav:
                         out_jet_flav_uncut.append(jet_flav_ij)
 
@@ -350,7 +354,7 @@ class JetGraphDataset(Dataset):
             b'trk_ctgtheta': out_trk_ctg_theta,
             b'trk_pt': out_trk_pt,
             b'trk_charge': out_trk_charge,
-            b'trk_vtx_index': out_trk_vtx_index,
+            b'trk_vtx_index': out_trk_vtx_index
         }
 
         print(" --> Saving nPV and nSV")
@@ -359,6 +363,8 @@ class JetGraphDataset(Dataset):
         self.jet_arrays[b'jet_nsv_uncut'] = out_jet_num_sv_uncut
         self.jet_arrays[b'jet_npv_uncut'] = out_jet_num_pv_uncut
         self.jet_arrays[b'jet_flav_uncut'] = out_jet_flav_uncut
+        self.jet_arrays[b'jet_ntrk'] = out_jet_ntrk
+        self.jet_arrays[b'jet_ntrk_uncut'] = out_jet_ntrk_uncut
         #print(self.jet_arrays[b'jet_npv'], "\n", self.jet_arrays[b'jet_nsv'])
 
         if self.add_jet_flav:

@@ -1,12 +1,9 @@
-import math
 import time
 
 import torch
-import uproot
 import numpy as np
 import pandas as pd
 from datetime import datetime
-from sklearn import metrics
 import mpmath
 import matplotlib.pyplot as plt
 import mplhep as hep
@@ -94,6 +91,8 @@ def eval_jets_on_test_set(model, sleeptime, real_data, debug_load):
         jet_flav_uncut = np.array(test_ds.jet_arrays[b'jet_flav_uncut'], dtype=np.float32)
         jet_nsv_uncut = np.array(test_ds.jet_arrays[b'jet_nsv_uncut'], dtype=np.float32)
         jet_npv_uncut = np.array(test_ds.jet_arrays[b'jet_npv_uncut'], dtype=np.float32)
+        jet_ntrk = np.array(test_ds.jet_arrays[b'jet_ntrk'], dtype=np.float32)
+        jet_ntrk_uncut = np.array(test_ds.jet_arrays[b'jet_ntrk_uncut'], dtype=np.float32)
 
     else:
         test_ds = JetGraphDataset('test', real_data=False, add_jet_flav=True, correct_jet_flav=False, load_to_cuda_device=False, debug_load=debug_load)
@@ -110,6 +109,7 @@ def eval_jets_on_test_set(model, sleeptime, real_data, debug_load):
             jet_flav = jet_flav[:minlen]
             jet_npv = jet_npv[:minlen]
             jet_nsv = jet_nsv[:minlen]
+            jet_ntrk = jet_ntrk[:minlen]
             print(" --> Shortened to", [len(pred), len(target), len(jet_flav), len(jet_npv), len(jet_nsv)])
         else:
             minlen = min([len(pred), len(target), len(jet_flav)])
@@ -141,6 +141,7 @@ def eval_jets_on_test_set(model, sleeptime, real_data, debug_load):
         if real_data:
             jet_nsv = np.delete(jet_nsv, remAt)
             jet_npv = np.delete(jet_npv, remAt)
+            jet_ntrk = np.delete(jet_ntrk, remAt)
 
         print(" --> There are", len(jet_flav), "left")
 
@@ -160,8 +161,6 @@ def eval_jets_on_test_set(model, sleeptime, real_data, debug_load):
     print(' --> F1')
     model_scores['F1'] = F1_func(target, pred)
 
-    model_scores['ARI'] = np.abs(model_scores['ARI'])
-
     end = datetime.now()
     print(f' --> Done Calculating, took me: {str(end - start).split(".")[0]}')
 
@@ -178,29 +177,29 @@ def eval_jets_on_test_set(model, sleeptime, real_data, debug_load):
             df_err.at[flav, metric] = err / np.sqrt(len(model_scores[metric][jet_flav == flav_n]))
 
     if real_data:
-
+        # Only important for visualization...
         start = datetime.now()
-
         print(" --> Calculating plots, only on CMS data")
 
-        ri_by_npv = {'b jets':{}, 'c jets':{}, 'light jets':{}}
-        ri_by_nsv = {'b jets':{}, 'c jets':{}, 'light jets':{}}
-        ari_by_npv = {'b jets':{}, 'c jets':{}, 'light jets':{}}
-        ari_by_nsv = {'b jets':{}, 'c jets':{}, 'light jets':{}}
-        err_ri_by_npv = {'b jets':{}, 'c jets':{}, 'light jets':{}}
-        err_ri_by_nsv = {'b jets':{}, 'c jets':{}, 'light jets':{}}
-        err_ari_by_npv = {'b jets':{}, 'c jets':{}, 'light jets':{}}
-        err_ari_by_nsv = {'b jets':{}, 'c jets':{}, 'light jets':{}}
+        ri_by_npv = {'b jets': {}, 'c jets': {}, 'light jets': {}}
+        ri_by_nsv = {'b jets': {}, 'c jets': {}, 'light jets': {}}
+        ari_by_npv = {'b jets': {}, 'c jets': {}, 'light jets': {}}
+        ari_by_nsv = {'b jets': {}, 'c jets': {}, 'light jets': {}}
+        err_ri_by_npv = {'b jets': {}, 'c jets': {}, 'light jets': {}}
+        err_ri_by_nsv = {'b jets': {}, 'c jets': {}, 'light jets': {}}
+        err_ari_by_npv = {'b jets': {}, 'c jets': {}, 'light jets': {}}
+        err_ari_by_nsv = {'b jets': {}, 'c jets': {}, 'light jets': {}}
 
         max_pv = int(max(jet_npv))
         max_sv = int(max(jet_nsv))
+        max_trks = int(max(jet_ntrk))
 
         ri_heatmap = {'b jets': np.zeros((max_pv, max_sv)), 'c jets': np.zeros((max_pv, max_sv)),
                       'light jets': np.zeros((max_pv, max_sv))}
         ari_heatmap = {'b jets': np.zeros((max_pv, max_sv)), 'c jets': np.zeros((max_pv, max_sv)),
                       'light jets': np.zeros((max_pv, max_sv))}
 
-        print(" --> Found max_pv", max_pv, "and max_sv", max_sv)
+        print(" --> Found max_pv", max_pv, "and max_sv", max_sv, "and max_trks", max_trks)
 
         for flav_n, flav in flavours.items():
             print(" --> Calculating heatmap for", flav)
@@ -212,6 +211,8 @@ def eval_jets_on_test_set(model, sleeptime, real_data, debug_load):
                         mean_metric_ari = np.mean(model_scores['ARI'][bool_index])
                         ri_heatmap[flav][n_p][n_s] = mean_metric_ri
                         ari_heatmap[flav][n_p][n_s] = mean_metric_ari
+                ari_heatmap[flav] = np.clip(ari_heatmap[flav], 0, 1)
+                ri_heatmap[flav] = np.clip(ri_heatmap[flav], 0, 1)
 
         for flav_n, flav in flavours.items():
             print(" --> Calculating (A)RI by npv for", flav)
@@ -244,29 +245,41 @@ def eval_jets_on_test_set(model, sleeptime, real_data, debug_load):
 
         flav_hist_sv = {'b jets': np.zeros(max_sv), 'c jets': np.zeros(max_sv),
                       'light jets': np.zeros(max_sv)}
+        trk_hist_sv = {'b jets': np.zeros(max_sv), 'c jets': np.zeros(max_sv),
+                       'light jets': np.zeros(max_sv)}
 
         for flav_n, flav in flavours.items():
-            print(" --> Calculating flav sv Hist", flav)
+            print(" --> Calculating flav and trk sv Hist", flav)
             for n in tqdm(range(max_sv)):
                 bool_index = np.logical_and(jet_flav == flav_n, jet_nsv == n)
                 if max(bool_index) == True:
                     flav_hist_sv[flav][n] = len(jet_flav[bool_index])
+                    trk_hist_sv[flav][n] = sum(jet_ntrk[bool_index]) / len(jet_flav[bool_index])
 
         flav_hist_pv = {'b jets': np.zeros(max_pv), 'c jets': np.zeros(max_pv),
                         'light jets': np.zeros(max_pv)}
+        trk_hist_pv = {'b jets': np.zeros(max_pv), 'c jets': np.zeros(max_pv),
+                      'light jets': np.zeros(max_pv)}
 
         for flav_n, flav in flavours.items():
-            print(" --> Calculating flav pv Hist", flav)
+            print(" --> Calculating flav and trk pv Hist", flav)
             for n in tqdm(range(max_pv)):
                 bool_index = np.logical_and(jet_flav == flav_n, jet_npv == n)
                 if max(bool_index) == True:
                     flav_hist_pv[flav][n] = len(jet_flav[bool_index])
+                    trk_hist_pv[flav][n] = sum(jet_ntrk[bool_index]) / len(jet_flav[bool_index])
+
 
         max_pv_uncut = int(max(jet_npv_uncut))
         max_sv_uncut = int(max(jet_nsv_uncut))
+        max_trks_uncut = int(max(jet_ntrk_uncut))
+
+        print(" --> Found max_pv_uncut", max_pv_uncut, "and max_sv_uncut", max_sv_uncut, "and max_trks_uncut", max_trks_uncut)
 
         flav_hist_sv_uncut = {'b jets': np.zeros(max_sv_uncut), 'c jets': np.zeros(max_sv_uncut),
                         'light jets': np.zeros(max_sv_uncut)}
+        trk_hist_sv_uncut = {'b jets': np.zeros(max_sv_uncut), 'c jets': np.zeros(max_sv_uncut),
+                              'light jets': np.zeros(max_sv_uncut)}
 
         for flav_n, flav in flavours.items():
             print(" --> Calculating uncut sv flav Hist", flav)
@@ -274,9 +287,12 @@ def eval_jets_on_test_set(model, sleeptime, real_data, debug_load):
                 bool_index = np.logical_and(jet_flav_uncut == flav_n, jet_nsv_uncut == n)
                 if max(bool_index) == True:
                     flav_hist_sv_uncut[flav][n] = len(jet_flav_uncut[bool_index])
+                    trk_hist_sv_uncut[flav][n] = sum(jet_ntrk_uncut[bool_index]) / len(jet_flav_uncut[bool_index])
 
         flav_hist_pv_uncut = {'b jets': np.zeros(max_pv_uncut), 'c jets': np.zeros(max_pv_uncut),
                         'light jets': np.zeros(max_pv_uncut)}
+        trk_hist_pv_uncut = {'b jets': np.zeros(max_pv_uncut), 'c jets': np.zeros(max_pv_uncut),
+                              'light jets': np.zeros(max_pv_uncut)}
 
         for flav_n, flav in flavours.items():
             print(" --> Calculating uncut pv flav Hist", flav)
@@ -284,23 +300,32 @@ def eval_jets_on_test_set(model, sleeptime, real_data, debug_load):
                 bool_index = np.logical_and(jet_flav_uncut == flav_n, jet_npv_uncut == n)
                 if max(bool_index) == True:
                     flav_hist_pv_uncut[flav][n] = len(jet_flav_uncut[bool_index])
+                    trk_hist_pv_uncut[flav][n] = sum(jet_ntrk_uncut[bool_index]) / len(jet_flav_uncut[bool_index])
+
+        print(" --> Normalizing ARI")
 
         for flav, ari in ari_by_npv.items():
             for n, ari_val in ari.items():
-                if ari_val > 1:
+                if np.abs(ari_val) >= 0 and np.abs(ari_val) <= 1:
+                    ari_by_npv[flav][n] = np.abs(ari_val)
+                elif ari_val > 1:
                     ari_by_npv[flav][n] = 1
                 elif ari_val < 0:
                     ari_by_npv[flav][n] = 0
 
         for flav, ari in ari_by_nsv.items():
             for n, ari_val in ari.items():
-                if ari_val > 1:
+                if np.abs(ari_val) >= 0 and np.abs(ari_val) <= 1:
+                    ari_by_nsv[flav][n] = np.abs(ari_val)
+                elif ari_val > 1:
                     ari_by_nsv[flav][n] = 1
                 elif ari_val < 0:
                     ari_by_nsv[flav][n] = 0
 
 
         print(" --> Drawing plots, only on CMS data")
+
+        # Plotting all (A)RI nPV dependencies
 
         for flav_n, flav in flavours.items():
             ns = []
@@ -314,29 +339,40 @@ def eval_jets_on_test_set(model, sleeptime, real_data, debug_load):
             plt.title("Rand index")
             plt.xlabel("Number of primary vertices")
             plt.ylabel("RI")
+            plt.ylim(0,1)
             plt.errorbar(ns, ri_val, yerr=ri_err, label=flav, linewidth=0, marker="x", elinewidth=2, capthick=2, capsize=4, ecolor='r', markersize=15)
             plt.legend()
             plt.savefig("plots/npv-ri-" + flav + ".png")
             plt.show()
-            plt.figure()
+            plt.close()
 
-        for flav_n, flav in flavours.items():
             ns = []
             ari_val = []
             ari_err = []
+            ri_val = []
+            ri_err = []
             for n, ari in ari_by_npv[flav].items():
                 ns.append(n)
                 ari_val.append(ari)
                 ari_err.append(err_ari_by_npv[flav][n])
+                ri_val.append(ri_by_npv[flav][n])
+                ri_err.append(err_ri_by_npv[flav][n])
 
             plt.title("Adjusted rand index")
             plt.xlabel("Number of primary vertices")
             plt.ylabel("ARI")
-            plt.errorbar(ns, ari_val, yerr=ari_err, label=flav, linewidth=0, marker="x", elinewidth=2, capthick=2, capsize=4, ecolor='r', markersize=15)
+            plt.ylim(0, 1)
+            plt.errorbar(ns, ari_val, yerr=ari_err, label="ARI " + flav, linewidth=0, marker="x", elinewidth=2,
+                         capthick=2,
+                         capsize=4, ecolor='r', markersize=15)
+            plt.errorbar(ns, ri_val, yerr=ri_err, label="RI " + flav, linewidth=0, marker="x", elinewidth=2, capthick=2,
+                         capsize=4, ecolor='r', markersize=15)
             plt.legend()
             plt.savefig("plots/npv-ari-" + flav + ".png")
             plt.show()
-            plt.figure()
+            plt.close()
+
+        # Plotting all (A)RI nSV dependencies
 
         for flav_n, flav in flavours.items():
             ns = []
@@ -350,29 +386,41 @@ def eval_jets_on_test_set(model, sleeptime, real_data, debug_load):
             plt.title("Rand index")
             plt.xlabel("Number of secondary vertices")
             plt.ylabel("RI")
-            plt.errorbar(ns, ri_val, yerr=ri_err, label=flav, linewidth=0, marker="x", elinewidth=2, capthick=2, capsize=4, ecolor='r', markersize=15)
+            plt.ylim(0, 1)
+            plt.errorbar(ns, ri_val, yerr=ri_err, label=flav, linewidth=0, marker="x", elinewidth=2, capthick=2,
+                         capsize=4, ecolor='r', markersize=15)
             plt.legend()
             plt.savefig("plots/nsv-ri-" + flav + ".png")
             plt.show()
-            plt.figure()
+            plt.close()
 
-        for flav_n, flav in flavours.items():
             ns = []
             ari_val = []
             ari_err = []
+            ri_val = []
+            ri_err = []
             for n, ari in ari_by_nsv[flav].items():
                 ns.append(n)
                 ari_val.append(ari)
                 ari_err.append(err_ari_by_nsv[flav][n])
+                ri_val.append(ri_by_nsv[flav][n])
+                ri_err.append(err_ri_by_nsv[flav][n])
 
             plt.title("Adjusted rand index")
             plt.xlabel("Number of secondary vertices")
             plt.ylabel("ARI")
-            plt.errorbar(ns, ari_val, yerr=ari_err, label=flav, linewidth=0, marker="x", elinewidth=2, capthick=2, capsize=4, ecolor='r', markersize=15)
+            plt.ylim(0, 1)
+            plt.errorbar(ns, ri_val, yerr=ri_err, label="RI " + flav, linewidth=0, marker="x", elinewidth=2, capthick=2,
+                         capsize=4, ecolor='r', markersize=15)
+            plt.errorbar(ns, ari_val, yerr=ari_err, label="ARI " + flav, linewidth=0, marker="x", elinewidth=2,
+                         capthick=2,
+                         capsize=4, ecolor='r', markersize=15)
             plt.legend()
             plt.savefig("plots/nsv-ari-" + flav + ".png")
             plt.show()
-            plt.figure()
+            plt.close()
+
+        # Plotting heatmaps
 
         fig, ax = plt.subplots(1,3)
         i = 0
@@ -387,7 +435,7 @@ def eval_jets_on_test_set(model, sleeptime, real_data, debug_load):
         plt.colorbar(im)
         plt.savefig("plots/heatmap-ri.png")
         plt.show()
-        plt.figure()
+        plt.close()
 
         fig, ax = plt.subplots(1, 3)
         i = 0
@@ -402,7 +450,9 @@ def eval_jets_on_test_set(model, sleeptime, real_data, debug_load):
         plt.colorbar(im)
         plt.savefig("plots/heatmap-ari.png")
         plt.show()
-        plt.figure()
+        plt.close()
+
+        # Plotting Histograms
 
         for flav_n, flav in flavours.items():
             plt.yscale("log")
@@ -416,7 +466,7 @@ def eval_jets_on_test_set(model, sleeptime, real_data, debug_load):
             plt.title("Number of Jets per secondary vertex")
             plt.savefig("plots/hist-SV-"+flav+".png")
             plt.show()
-            plt.figure()
+            plt.close()
 
             plt.yscale("log")
             hist = flav_hist_pv[flav]
@@ -429,7 +479,31 @@ def eval_jets_on_test_set(model, sleeptime, real_data, debug_load):
             plt.title("Number of Jets per primary vertex")
             plt.savefig("plots/hist-PV-" + flav + ".png")
             plt.show()
-            plt.figure()
+            plt.close()
+
+            hist = trk_hist_sv[flav]
+            plt.bar(range(max_sv), hist, label=flav, width=1, fill=False, edgecolor='blue')
+            hist = trk_hist_sv_uncut[flav]
+            plt.bar(range(max_sv_uncut), hist, label=flav + " uncut", width=1, fill=False, edgecolor='red')
+            plt.ylabel("Number of Tracks")
+            plt.xlabel("Mean number of secondary vertices")
+            plt.legend()
+            plt.title("Mean Tracks per jet event per secondary vertex")
+            plt.savefig("plots/hist-SV-trk-" + flav + ".png")
+            plt.show()
+            plt.close()
+
+            hist = trk_hist_pv[flav]
+            plt.bar(range(max_pv), hist, label=flav, width=1, fill=False, edgecolor='blue')
+            hist = trk_hist_pv_uncut[flav]
+            plt.bar(range(max_pv_uncut), hist, label=flav + " uncut", width=1, fill=False, edgecolor='red')
+            plt.ylabel("Number of Tracks")
+            plt.xlabel("Number of primary vertices")
+            plt.legend()
+            plt.title("Mean Tracks per jet event per primary vertex")
+            plt.savefig("plots/hist-PV-trk-" + flav + ".png")
+            plt.show()
+            plt.close()
 
         end = datetime.now()
         print(f' --> Done Calculating, took me: {str(end - start).split(".")[0]}')
