@@ -8,6 +8,6 @@
  
 ### begin of executable commands
 module load cuda
-cd /home/rq388478/Bachelorarbeit/SetToGraphPaper
-source /home/rq388478/miniconda3/bin/activate s2g_env
+cd /work/directory/
+source /path/to/python/env/activate s2g_env
 python main_scripts/main_jets.py --load_model 1 
