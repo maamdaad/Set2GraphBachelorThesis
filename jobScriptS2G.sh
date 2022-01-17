@@ -9,5 +9,5 @@
 ### begin of executable commands
 module load cuda
 cd /work/directory/
-source /path/to/python/env/activate s2g_env
+source /path/to/python/env/bin/activate s2g_env
 python main_scripts/main_jets.py --load_model 1 
