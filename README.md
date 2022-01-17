@@ -1,4 +1,4 @@
-# Set2GraphPaper
+# Set2Grap thesis code
 
 MiniConda (https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh)
 
